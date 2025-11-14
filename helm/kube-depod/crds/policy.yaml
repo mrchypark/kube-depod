@@ -21,91 +21,91 @@ spec:
             spec:
               type: object
               required:
-                - target
+                - match
                 - trigger
-                - condition
-                - action
+                - when
+                - then
                 - limits
               properties:
-                target:
+                match:
                   type: object
                   properties:
-                    namespace_selector:
+                    namespaceSelector:
                       type: object
                       properties:
-                        match_names:
+                        matchNames:
                           type: array
                           items:
                             type: string
-                    pod_selector:
+                    podSelector:
                       type: object
                       properties:
-                        match_labels:
+                        matchLabels:
                           type: object
                           additionalProperties:
                             type: string
                 trigger:
                    type: object
                    required:
-                     - annotation_key
-                     - annotation_values
+                     - annotationKey
+                     - annotationValues
                    properties:
-                     annotation_key:
+                     annotationKey:
                        type: string
                        description: Annotation key to look for
-                     annotation_values:
+                     annotationValues:
                        type: array
                        items:
                          type: string
                        description: Accepted annotation values
-                condition:
+                when:
                    type: object
                    required:
-                     - condition_type
+                     - type
                    properties:
-                     condition_type:
+                     type:
                        type: string
                        enum: ["Builtin", "CEL"]
                        description: Condition type
                      expression:
                        type: string
                        description: CEL expression (required for CEL type)
-                     ttl_seconds:
+                     ttlSeconds:
                        type: integer
                        description: TTL in seconds (required for Builtin type)
-                action:
+                then:
                    type: object
                    required:
-                     - action_type
+                     - type
                    properties:
-                     action_type:
+                     type:
                        type: string
                        enum: ["Delete", "Evict"]
                        description: Action type
-                     grace_period_seconds:
+                     graceSeconds:
                        type: integer
                        description: Grace period for deletion
-                     dry_run:
+                     dryRun:
                        type: boolean
                        default: false
                        description: Dry-run mode (no actual deletion)
                 limits:
                    type: object
                    properties:
-                     max_deletes_per_minute:
+                     maxDeletesPerMinute:
                        type: integer
                        description: Max pods to delete per minute
-                     protect_system_namespaces:
+                     protectSystemNamespaces:
                        type: boolean
                        default: true
                        description: Protect system namespaces
       additionalPrinterColumns:
-        - jsonPath: .spec.condition.type
-          name: Condition Type
-          type: string
-        - jsonPath: .spec.action.type
-          name: Action
-          type: string
-        - jsonPath: .spec.action.dryRun
-          name: Dry Run
-          type: boolean
+         - jsonPath: .spec.when.type
+           name: Condition Type
+           type: string
+         - jsonPath: .spec.then.type
+           name: Action
+           type: string
+         - jsonPath: .spec.then.dryRun
+           name: Dry Run
+           type: boolean

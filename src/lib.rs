@@ -10,11 +10,11 @@ pub use error::{Error, Result};
 
 #[cfg(test)]
 mod tests {
-    use crate::crd::{PolicySpec, Trigger, Match, When, Then, Limits};
+    use crate::crd::{DepodPolicySpec, Trigger, Match, When, Then, Limits};
 
     #[test]
     fn test_policy_validation() {
-        let mut spec = PolicySpec {
+        let mut spec = DepodPolicySpec {
             match_: Match {
                 namespace_selector: None,
                 pod_selector: None,

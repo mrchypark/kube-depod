@@ -11,8 +11,9 @@ use std::collections::BTreeMap;
     kind = "DepodPolicy",
     namespaced
 )]
-pub struct PolicySpec {
+pub struct DepodPolicySpec {
     /// Match namespace and pod selectors
+    #[serde(rename = "match")]
     pub match_: Match,
 
     /// Trigger condition (annotation-based)
@@ -32,25 +33,25 @@ pub struct PolicySpec {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct Match {
     /// Namespace selector (matchNames or matchExpressions)
-    #[serde(default)]
+    #[serde(default, rename = "namespaceSelector")]
     pub namespace_selector: Option<NamespaceSelector>,
 
     /// Pod label selector
-    #[serde(default)]
+    #[serde(default, rename = "podSelector")]
     pub pod_selector: Option<PodSelector>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct NamespaceSelector {
     /// Match specific namespace names
-    #[serde(default)]
+    #[serde(default, rename = "matchNames")]
     pub match_names: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PodSelector {
     /// Match pods by labels
-    #[serde(default)]
+    #[serde(default, rename = "matchLabels")]
     pub match_labels: BTreeMap<String, String>,
 }
 
@@ -58,9 +59,11 @@ pub struct PodSelector {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct Trigger {
     /// Annotation key to look for
+    #[serde(rename = "annotationKey")]
     pub annotation_key: String,
 
     /// Accepted annotation values
+    #[serde(rename = "annotationValues")]
     pub annotation_values: Vec<String>,
 }
 
@@ -76,7 +79,7 @@ pub struct When {
     pub expression: Option<String>,
 
     /// TTL seconds for builtin TTL type
-    #[serde(default)]
+    #[serde(default, rename = "ttlSeconds")]
     pub ttl_seconds: Option<i64>,
 }
 
@@ -92,7 +95,7 @@ pub struct Then {
     pub grace_seconds: Option<i64>,
 
     /// Dry run mode (don't actually delete)
-    #[serde(default)]
+    #[serde(default, rename = "dryRun")]
     pub dry_run: bool,
 }
 
@@ -100,15 +103,15 @@ pub struct Then {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct Limits {
     /// Max pods to delete per minute
-    #[serde(default)]
+    #[serde(default, rename = "maxDeletesPerMinute")]
     pub max_deletes_per_minute: Option<i32>,
 
     /// Protect system namespaces
-    #[serde(default)]
+    #[serde(default, rename = "protectSystemNamespaces")]
     pub protect_system_namespaces: bool,
 }
 
-impl PolicySpec {
+impl DepodPolicySpec {
     /// Validate the spec
     pub fn validate(&self) -> Result<(), String> {
         if self.trigger.annotation_key.is_empty() {
@@ -119,18 +122,18 @@ impl PolicySpec {
             return Err("trigger.annotation_values cannot be empty".to_string());
         }
 
-        if self.condition.condition_type == "CEL" && self.condition.expression.is_none() {
-            return Err("condition.expression required for CEL type".to_string());
+        if self.when.condition_type == "CEL" && self.when.expression.is_none() {
+            return Err("when.expression required for CEL type".to_string());
         }
 
-        if self.condition.condition_type == "Builtin" && self.condition.ttl_seconds.is_none() {
-            return Err("condition.ttl_seconds required for Builtin type".to_string());
+        if self.when.condition_type == "Builtin" && self.when.ttl_seconds.is_none() {
+            return Err("when.ttl_seconds required for Builtin type".to_string());
         }
 
-        if !["Delete", "Evict"].contains(&self.action.action_type.as_str()) {
+        if !["Delete", "Evict"].contains(&self.then.action_type.as_str()) {
             return Err(format!(
                 "unsupported action type: {}",
-                self.action.action_type
+                self.then.action_type
             ));
         }
 

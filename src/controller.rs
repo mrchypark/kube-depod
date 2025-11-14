@@ -1,4 +1,4 @@
-use crate::crd::Policy;
+use crate::crd::DepodPolicy;
 use crate::engine::CelEvaluator;
 use crate::rate_limiter::RateLimiter;
 use crate::Result;
@@ -18,7 +18,7 @@ pub struct ReconcileResult {
 }
 
 /// Matches a pod against a policy rule
-pub fn matches_policy(pod: &Pod, policy: &Policy) -> bool {
+pub fn matches_policy(pod: &Pod, policy: &DepodPolicy) -> bool {
     let spec = &policy.spec;
 
     // Check namespace
@@ -85,7 +85,7 @@ pub fn is_system_namespace(ns: &str) -> bool {
 /// Main reconciliation logic for a pod
 pub async fn reconcile_pod_with_evaluator(
     pod: Pod,
-    policies: &[Policy],
+    policies: &[DepodPolicy],
     client: &Client,
     evaluator: Arc<Mutex<CelEvaluator>>,
     rate_limiter: Option<Arc<RateLimiter>>,
@@ -282,7 +282,7 @@ pub async fn reconcile_pod_with_evaluator(
 }
 
 /// Wrapper for backward compatibility (without CEL evaluator)
-pub async fn reconcile_pod(pod: Pod, policies: &[Policy], client: &Client) -> Result<ReconcileResult> {
+pub async fn reconcile_pod(pod: Pod, policies: &[DepodPolicy], client: &Client) -> Result<ReconcileResult> {
     let evaluator = Arc::new(Mutex::new(CelEvaluator::new()));
     reconcile_pod_with_evaluator(pod, policies, client, evaluator, None).await
 }
@@ -290,7 +290,7 @@ pub async fn reconcile_pod(pod: Pod, policies: &[Policy], client: &Client) -> Re
 /// Wrapper with rate limiter support
 pub async fn reconcile_pod_with_rate_limit(
     pod: Pod,
-    policies: &[Policy],
+    policies: &[DepodPolicy],
     client: &Client,
     rate_limiter: Arc<RateLimiter>,
 ) -> Result<ReconcileResult> {
@@ -299,8 +299,8 @@ pub async fn reconcile_pod_with_rate_limit(
 }
 
 /// Load all policy rules
-pub async fn load_policies(client: &Client) -> Result<Vec<Policy>> {
-    let api: Api<Policy> = Api::all(client.clone());
+pub async fn load_policies(client: &Client) -> Result<Vec<DepodPolicy>> {
+    let api: Api<DepodPolicy> = Api::all(client.clone());
     let lp = ListParams::default();
 
     let policies = api.list(&lp).await?;
