@@ -33,7 +33,7 @@ The `helm-release.yml` workflow:
 Once configured, users can add the repository:
 
 ```bash
-helm repo add kube-depod https://mrchypark.github.io/kube-depot
+helm repo add kube-depod https://mrchypark.github.io/kube-depod
 helm repo update
 helm install kube-depod kube-depod/kube-depod -n kube-system
 ```
@@ -50,7 +50,7 @@ helm package ./helm/kube-depod -d ./helm/releases
 helm repo index ./helm/releases --merge <path-to-gh-pages-index.yaml>
 
 # Or create new index
-helm repo index ./helm/releases --url https://mrchypark.github.io/kube-depot
+helm repo index ./helm/releases --url https://mrchypark.github.io/kube-depod
 
 # Push to gh-pages branch
 git checkout gh-pages
@@ -65,7 +65,7 @@ git push origin gh-pages
 
 ```bash
 # Check if repository is accessible
-curl https://mrchypark.github.io/kube-depot/index.yaml
+curl https://mrchypark.github.io/kube-depod/index.yaml
 
 # Search for charts
 helm search repo kube-depod

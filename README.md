@@ -55,7 +55,7 @@ cargo build --release
 
 ```bash
 # Add the Helm repository
-helm repo add kube-depod https://mrchypark.github.io/kube-depot
+helm repo add kube-depod https://mrchypark.github.io/kube-depod
 helm repo update
 
 # Install in kube-system namespace

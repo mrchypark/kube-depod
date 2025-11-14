@@ -42,9 +42,9 @@ jobs:
       - name: Update Helm index
         run: |
           if [ -d "gh-pages" ]; then
-            helm repo index ./helm/releases --merge gh-pages/index.yaml --url https://mrchypark.github.io/kube-depot
+            helm repo index ./helm/releases --merge gh-pages/index.yaml --url https://mrchypark.github.io/kube-depod
           else
-            helm repo index ./helm/releases --url https://mrchypark.github.io/kube-depot
+            helm repo index ./helm/releases --url https://mrchypark.github.io/kube-depod
           fi
 
       - name: Checkout gh-pages branch
