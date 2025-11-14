@@ -2,7 +2,7 @@ use anyhow::Result;
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::runtime::watcher::{watcher, Config};
-use kube::{Api, Client, ResourceExt};
+use kube::{Api, Client};
 use kube_depod::controller::{load_policies, reconcile_pod_with_rate_limit};
 use kube_depod::metrics::Metrics;
 use kube_depod::rate_limiter::RateLimiter;
