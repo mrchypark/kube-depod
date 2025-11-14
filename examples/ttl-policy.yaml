@@ -23,7 +23,7 @@ spec:
 
   then:
     type: "Delete"
-    gracePeriodSeconds: 30
+    graceSeconds: 30
     dryRun: false
 
   limits:
