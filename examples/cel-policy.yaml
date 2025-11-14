@@ -1,44 +1,122 @@
+# kube-depod DepodPolicy Examples
+# This file demonstrates various CEL-based Pod deletion policies
+
+---
+# Policy 1: Completed containers with failed ready status
+# Deletes Pods that have gracefully terminated but show Failed status
 apiVersion: kube-depod.io/v1alpha1
 kind: DepodPolicy
 metadata:
-  name: failed-pod-policy
-  namespace: default
+  name: completed-failed-pods
+  namespace: kube-depod
 spec:
-  match:
+  # Target: apply this policy to default namespace
+  target:
     namespaceSelector:
       matchNames:
         - default
-    podSelector: {}
+    podSelector: {}  # All pods in the namespace
+
+  # Trigger: Pod must have the annotation with value "cleanup-completed"
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "cleanup-completed"
+
+  # Condition: CEL expression that checks:
+  # 1. Ready condition is False
+  # 2. At least one container is terminated with reason "Completed"
+  #    but has restartCount > 0 and ready == false
+  condition:
+    type: "CEL"
+    expression: |
+      (
+        has(self.status.conditions) &&
+        self.status.conditions.exists(cond,
+          cond.type == 'Ready' && cond.status == 'False'
+        )
+      ) &&
+      (
+        has(self.status.containerStatuses) &&
+        self.status.containerStatuses.exists(c,
+          c.ready == false &&
+          c.restartCount > 0 &&
+          has(c.state.terminated) &&
+          c.state.terminated.reason == 'Completed'
+        )
+      )
+
+  # Action: Delete the pod gracefully
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 30
+    dryRun: false
+
+  # Limits: Safety mechanisms
+  limits:
+    maxDeletesPerMinute: 5
+    protectSystemNamespaces: true
+    excludedNamespaces:
+      - monitoring
+      - logging
+
+---
+# Policy 2: CrashLoopBackOff pods
+# Deletes Pods that are in CrashLoopBackOff state for more than 10 minutes
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: crashloop-pods
+  namespace: kube-depod
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - default
+        - development
+    podSelector:
+      matchLabels:
+        app: worker
 
   trigger:
     annotationKey: "kube-depod/policy"
     annotationValues:
-      - "cleanup-failed"
+      - "auto-cleanup"
 
-  when:
+  condition:
     type: "CEL"
     expression: |
-      status.phase == "Failed"
+      status.containerStatuses.exists(c,
+        has(c.state.waiting) &&
+        c.state.waiting.reason == 'CrashLoopBackOff' &&
+        c.restartCount >= 5
+      )
 
-  then:
+  action:
     type: "Delete"
     gracePeriodSeconds: 0
-    dryRun: true # Set to false to actually delete
+    dryRun: false
 
   limits:
-    maxDeletesPerMinute: 5
+    maxDeletesPerMinute: 10
     protectSystemNamespaces: true
-  ---
-  apiVersion: kube-depod.io/v1alpha1
-  kind: DepodPolicy
-  metadata:
-  name: old-pod-policy
-  namespace: default
-  spec:
-  match:
+    excludedNamespaces:
+      - istio-system
+      - linkerd
+
+---
+# Policy 3: Old ephemeral pods (TTL-based cleanup)
+# Deletes temporary/ephemeral pods older than 30 minutes
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: ephemeral-ttl-policy
+  namespace: kube-depod
+spec:
+  target:
     namespaceSelector:
       matchNames:
-         - default
+        - default
     podSelector:
       matchLabels:
         ephemeral: "true"
@@ -46,17 +124,241 @@ spec:
   trigger:
     annotationKey: "kube-depod/cleanup"
     annotationValues:
-      - "auto"
+      - "ttl"
 
-  when:
+  condition:
     type: "CEL"
-    expression: "age > 1800" # 30 minutes
+    expression: |
+      # Calculate age in seconds: now - creationTimestamp > 1800 (30 min)
+      now.getFullYear() - metadata.creationTimestamp.getFullYear() > 1800 ||
+      (
+        metadata.creationTimestamp != null &&
+        size(metadata.creationTimestamp) > 0
+      )
 
-  then:
+  action:
     type: "Delete"
     gracePeriodSeconds: 30
     dryRun: false
 
   limits:
-    maxDeletesPerMinute: 10
+    maxDeletesPerMinute: 20
     protectSystemNamespaces: true
+
+---
+# Policy 4: ImagePullBackOff - image not found
+# Deletes Pods stuck in ImagePullBackOff state
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: image-pull-backoff-policy
+  namespace: kube-depod
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - default
+        - staging
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "cleanup-image-errors"
+
+  condition:
+    type: "CEL"
+    expression: |
+      status.containerStatuses.exists(c,
+        has(c.state.waiting) && (
+          c.state.waiting.reason == 'ImagePullBackOff' ||
+          c.state.waiting.reason == 'ErrImagePull'
+        )
+      )
+
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 0
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 15
+    protectSystemNamespaces: true
+    excludedNamespaces:
+      - ingress-nginx
+
+---
+# Policy 5: Dry-run example - test the expression without deletion
+# Shows what pods would be deleted
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: test-completed-pods-dryrun
+  namespace: kube-depod
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - default
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "cleanup-completed"
+
+  condition:
+    type: "CEL"
+    expression: |
+      (
+        has(self.status.conditions) &&
+        self.status.conditions.exists(cond,
+          cond.type == 'Ready' && cond.status == 'False'
+        )
+      ) &&
+      (
+        has(self.status.containerStatuses) &&
+        self.status.containerStatuses.exists(c,
+          c.ready == false &&
+          c.restartCount > 0 &&
+          has(c.state.terminated) &&
+          c.state.terminated.reason == 'Completed'
+        )
+      )
+
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 30
+    dryRun: true  # Enable dry-run mode
+
+  limits:
+    maxDeletesPerMinute: 100
+    protectSystemNamespaces: true
+    excludedNamespaces:
+      - monitoring
+      - observability
+
+---
+# Policy 6: Multiple restart threshold
+# Deletes Pods with containers that have restarted many times
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: high-restart-policy
+  namespace: kube-depod
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - default
+        - production
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "cleanup-flaky"
+
+  condition:
+    type: "CEL"
+    expression: |
+      status.containerStatuses.exists(c,
+        c.restartCount > 10 &&
+        c.ready == false
+      )
+
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 30
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 8
+    protectSystemNamespaces: true
+    excludedNamespaces:
+      - prod-critical
+      - external-dns
+
+---
+# Policy 7: Pod with Succeeded phase (completed successfully)
+# Cleans up successfully completed batch jobs
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: succeeded-pods-cleanup
+  namespace: kube-depod
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - default
+    podSelector:
+      matchLabels:
+        type: batch-job
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "cleanup-batch"
+
+  condition:
+    type: "CEL"
+    expression: |
+      status.phase == 'Succeeded'
+
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 0
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 50
+    protectSystemNamespaces: true
+    excludedNamespaces:
+      - argocd
+      - flux-system
+
+---
+# Policy 8: Complex multi-condition check
+# Combines multiple conditions with AND/OR logic
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: complex-cleanup-policy
+  namespace: kube-depod
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - testing
+        - staging
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "aggressive-cleanup"
+
+  condition:
+    type: "CEL"
+    expression: |
+      # Delete if: (CrashLoopBackOff OR ImagePullBackOff) AND ready == false
+      (
+        status.containerStatuses.exists(c,
+          has(c.state.waiting) && (
+            c.state.waiting.reason == 'CrashLoopBackOff' ||
+            c.state.waiting.reason == 'ImagePullBackOff'
+          )
+        )
+      ) &&
+      (
+        status.containerStatuses.all(c, c.ready == false)
+      )
+
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 0
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 20
+    protectSystemNamespaces: true
+    excludedNamespaces:
+      - backend-services
+      - database

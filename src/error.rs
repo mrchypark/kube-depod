@@ -8,6 +8,12 @@ pub enum Error {
     #[error("Serialization error: {0}")]
     SerdeError(#[from] serde_json::Error),
 
+    #[error("CEL compilation error: {0}")]
+    CelCompilationError(String),
+
+    #[error("CEL evaluation error: {0}")]
+    CelEvaluationError(String),
+
     #[error("Custom error: {0}")]
     Custom(String),
 }

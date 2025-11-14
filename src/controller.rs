@@ -82,6 +82,27 @@ pub fn is_system_namespace(ns: &str) -> bool {
     )
 }
 
+/// Check if namespace is protected by policy limits
+pub fn is_namespace_protected(
+    ns: &str,
+    protect_system: bool,
+    excluded_namespaces: &Option<Vec<String>>,
+) -> bool {
+    // Check if it's a system namespace
+    if protect_system && is_system_namespace(ns) {
+        return true;
+    }
+
+    // Check if it's in the excluded namespaces list
+    if let Some(excluded) = excluded_namespaces {
+        if excluded.contains(&ns.to_string()) {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Main reconciliation logic for a pod
 pub async fn reconcile_pod_with_evaluator(
     pod: Pod,
@@ -147,17 +168,33 @@ pub async fn reconcile_pod_with_evaluator(
                 if let Some(expr) = &policy.spec.when.expression {
                     match evaluator.lock() {
                         Ok(mut eval) => match eval.evaluate(expr, &pod) {
-                            Ok(result) => {
+                            Ok(condition_result) => {
                                 debug!(
                                     "CEL evaluation for pod {}/{}: {} = {}",
-                                    pod_ns, pod_name, expr, result
+                                    pod_ns, pod_name, expr, condition_result
                                 );
-                                result
+                                condition_result
+                            }
+                            Err(crate::Error::CelCompilationError(e)) => {
+                                warn!(
+                                    "CEL compilation failed for policy {}: {}",
+                                    policy.name_any(), e
+                                );
+                                result.errors += 1;
+                                false
+                            }
+                            Err(crate::Error::CelEvaluationError(e)) => {
+                                warn!(
+                                    "CEL evaluation failed for pod {}/{} (policy {}): {}",
+                                    pod_ns, pod_name, policy.name_any(), e
+                                );
+                                result.errors += 1;
+                                false
                             }
                             Err(e) => {
                                 warn!(
-                                    "Failed to evaluate CEL expression for pod {}/{}: {}",
-                                    pod_ns, pod_name, e
+                                    "CEL error for pod {}/{} (policy {}): {}",
+                                    pod_ns, pod_name, policy.name_any(), e
                                 );
                                 result.errors += 1;
                                 false
@@ -198,13 +235,23 @@ pub async fn reconcile_pod_with_evaluator(
             continue;
         }
 
-        // Check safety limits
-        if policy.spec.limits.protect_system_namespaces && is_system_namespace(&pod_ns) {
+        // Check safety limits (system namespaces + excluded namespaces)
+        if is_namespace_protected(
+            &pod_ns,
+            policy.spec.limits.protect_system_namespaces,
+            &policy.spec.limits.excluded_namespaces,
+        ) {
+            let protection_reason = if policy.spec.limits.protect_system_namespaces
+                && is_system_namespace(&pod_ns)
+            {
+                "system namespace"
+            } else {
+                "excluded namespace"
+            };
+
             info!(
-                "Skipping deletion of pod {}/{} in protected namespace with policy {}",
-                pod_ns,
-                pod_name,
-                policy.name_any()
+                "Skipping deletion of pod {}/{} ({}), policy: {}",
+                pod_ns, pod_name, protection_reason, policy.name_any()
             );
             continue;
         }

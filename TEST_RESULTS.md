@@ -33,7 +33,7 @@
 - ✅ `test_evaluation_context_from_pod` - Pod context mapping works
 
 ### Core Module (1 test)
-- ✅ `test_policy_rule_validation` - PolicyRule validation works correctly
+- ✅ `test_policy_rule_validation` - DepodPolicy validation works correctly
 
 ## Integration Tests
 
@@ -53,7 +53,7 @@
 ```
 ✅ CRD: policyrules.kube-depod.io (created)
 ✅ Namespace: test-depod (created)
-✅ PolicyRule: test-ttl-policy (created and verified)
+✅ DepodPolicy: test-ttl-policy (created and verified)
 ✅ Pods: test-pod-1, test-pod-2, test-pod-3 (created)
 ```
 

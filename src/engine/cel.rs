@@ -1,35 +1,70 @@
 use crate::Result;
-use chrono::{DateTime, Utc};
+use cel::{Context, Program, Value};
+use chrono::Utc;
 use k8s_openapi::api::core::v1::Pod;
-use serde_json::Value;
-use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, warn};
 
-/// CEL expression evaluator
+/// CEL expression evaluator with caching
 pub struct CelEvaluator {
-    expression_cache: HashMap<String, String>,
+    /// Cache of compiled CEL programs
+    expression_cache: std::collections::HashMap<String, Arc<Program>>,
 }
 
 impl CelEvaluator {
     pub fn new() -> Self {
         Self {
-            expression_cache: HashMap::new(),
+            expression_cache: std::collections::HashMap::new(),
         }
     }
 
     /// Compile and evaluate a CEL expression
     pub fn evaluate(&mut self, expr: &str, pod: &Pod) -> Result<bool> {
-        let context = EvaluationContext::from_pod(pod)?;
+        // Get or compile the expression
+        let program = if let Some(cached) = self.expression_cache.get(expr) {
+            cached.clone()
+        } else {
+            // Compile new expression
+            match Program::compile(expr) {
+                Ok(prog) => {
+                    let prog = Arc::new(prog);
+                    self.expression_cache.insert(expr.to_string(), prog.clone());
+                    prog
+                }
+                Err(e) => {
+                    warn!("CEL compilation error for expression '{}': {}", expr, e);
+                    return Err(crate::Error::CelCompilationError(e.to_string()));
+                }
+            }
+        };
 
-        // Try to evaluate the expression
-        match evaluate_cel(expr, &context) {
-            Ok(result) => Ok(result),
+        // Create evaluation context
+        let context = build_evaluation_context(pod)?;
+
+        // Evaluate
+        match program.execute(&context) {
+            Ok(result) => {
+                let bool_result = match result {
+                    Value::Bool(b) => b,
+                    Value::Int(i) => i != 0,
+                    Value::UInt(u) => u != 0,
+                    Value::Float(f) => f != 0.0,
+                    _ => {
+                        warn!(
+                            "CEL expression '{}' did not evaluate to boolean, got: {:?}",
+                            expr, result
+                        );
+                        return Err(crate::Error::CelEvaluationError(
+                            "Expression did not evaluate to boolean".to_string(),
+                        ));
+                    }
+                };
+                debug!("CEL evaluation '{}' = {}", expr, bool_result);
+                Ok(bool_result)
+            }
             Err(e) => {
-                warn!("CEL evaluation error: {}", e);
-                Err(crate::Error::Custom(format!(
-                    "CEL evaluation failed: {}",
-                    e
-                )))
+                warn!("CEL evaluation error for expression '{}': {}", expr, e);
+                Err(crate::Error::CelEvaluationError(e.to_string()))
             }
         }
     }
@@ -37,6 +72,11 @@ impl CelEvaluator {
     /// Clear the expression cache
     pub fn clear_cache(&mut self) {
         self.expression_cache.clear();
+    }
+
+    /// Get cache size
+    pub fn cache_size(&self) -> usize {
+        self.expression_cache.len()
     }
 }
 
@@ -46,145 +86,50 @@ impl Default for CelEvaluator {
     }
 }
 
-/// Evaluation context with Pod data
-#[derive(Debug, Clone)]
-pub struct EvaluationContext {
-    /// Pod object as JSON value
-    pub object: Value,
-    /// Current time
-    pub now: DateTime<Utc>,
-}
+/// Build CEL context from a Pod
+fn build_evaluation_context(pod: &Pod) -> Result<Context> {
+    let mut context = Context::default();
 
-impl EvaluationContext {
-    /// Create evaluation context from a Pod
-    pub fn from_pod(pod: &Pod) -> Result<Self> {
-        let object = serde_json::to_value(pod)
-            .map_err(|e| crate::Error::Custom(format!("Failed to serialize Pod: {}", e)))?;
+    // Add convenient shortcuts
+    let creation_timestamp = pod
+        .metadata
+        .creation_timestamp
+        .as_ref()
+        .map(|t| t.0);
 
-        Ok(Self {
-            object,
-            now: Utc::now(),
-        })
+    if let Some(created) = creation_timestamp {
+        let now = Utc::now();
+        let age_seconds = (now - created).num_seconds();
+        let _ = context.add_variable("age", Value::Int(age_seconds));
+        let _ = context.add_variable("now", Value::Int(now.timestamp()));
     }
 
-    /// Get the Pod's creation timestamp
-    pub fn creation_timestamp(&self) -> Option<DateTime<Utc>> {
-        self.object
-            .pointer("/metadata/creationTimestamp")
-            .and_then(|v| v.as_str())
-            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&Utc))
+    // Add namespace
+    if let Some(ns) = pod.metadata.namespace.as_ref() {
+        let _ = context.add_variable("namespace", Value::String(Arc::new(ns.clone())));
     }
 
-    /// Get Pod age in seconds
-    pub fn pod_age_seconds(&self) -> Option<i64> {
-        self.creation_timestamp()
-            .map(|created| (self.now - created).num_seconds())
+    // Add Pod name
+    if let Some(name) = pod.metadata.name.as_ref() {
+        let _ = context.add_variable("name", Value::String(Arc::new(name.clone())));
     }
 
-    /// Get Pod namespace
-    pub fn namespace(&self) -> Option<String> {
-        self.object
-            .pointer("/metadata/namespace")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-    }
-
-    /// Get Pod name
-    pub fn pod_name(&self) -> Option<String> {
-        self.object
-            .pointer("/metadata/name")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-    }
-
-    /// Get Pod labels
-    pub fn labels(&self) -> HashMap<String, String> {
-        let mut labels = HashMap::new();
-        if let Some(obj) = self
-            .object
-            .pointer("/metadata/labels")
-            .and_then(|v| v.as_object())
-        {
-            for (k, v) in obj {
-                if let Some(s) = v.as_str() {
-                    labels.insert(k.clone(), s.to_string());
-                }
-            }
+    // Add phase
+    if let Some(status) = &pod.status {
+        if let Some(phase) = &status.phase {
+            let _ = context.add_variable("phase", Value::String(Arc::new(phase.clone())));
         }
-        labels
-    }
 
-    /// Get Pod phase
-    pub fn phase(&self) -> Option<String> {
-        self.object
-            .pointer("/status/phase")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-    }
-}
-
-/// Evaluate a CEL expression with simplified runtime
-/// This is a basic implementation that handles common Pod-related conditions
-fn evaluate_cel(expr: &str, context: &EvaluationContext) -> std::result::Result<bool, String> {
-    debug!("Evaluating CEL expression: {}", expr);
-
-    // Simple expression parser for common patterns
-    // In production, use full CEL interpreter (cel-interpreter or google/cel-go bindings)
-
-    // Pattern: age > N (in seconds)
-    if let Some(age_seconds) = context.pod_age_seconds() {
-        if expr.contains("age") && expr.contains(">") {
-            if let Some(seconds_str) = extract_number_from_comparison(expr, ">") {
-                if let Ok(threshold) = seconds_str.parse::<i64>() {
-                    return Ok(age_seconds > threshold);
-                }
+        // Add restart count
+        if let Some(container_statuses) = &status.container_statuses {
+            if !container_statuses.is_empty() {
+                let restart_count = container_statuses[0].restart_count as i64;
+                let _ = context.add_variable("restartCount", Value::Int(restart_count));
             }
         }
     }
 
-    // Pattern: status.phase == "Failed"
-    if expr.contains("status.phase") && expr.contains("==") {
-        if let Some(phase) = context.phase() {
-            if expr.contains("\"Failed\"") {
-                return Ok(phase == "Failed");
-            } else if expr.contains("\"Pending\"") {
-                return Ok(phase == "Pending");
-            } else if expr.contains("\"Unknown\"") {
-                return Ok(phase == "Unknown");
-            } else if expr.contains("\"CrashLoopBackOff\"") {
-                return Ok(phase == "CrashLoopBackOff");
-            }
-        }
-    }
-
-    // Pattern: metadata.namespace == "namespace"
-    if expr.contains("metadata.namespace") && expr.contains("==") {
-        if let Some(ns) = context.namespace() {
-            if let Some(ns_str) = extract_quoted_string(expr) {
-                return Ok(ns == ns_str);
-            }
-        }
-    }
-
-    // If we can't evaluate, return false (safe default)
-    warn!("Unable to parse CEL expression: {}", expr);
-    Ok(false)
-}
-
-/// Extract a number from comparison expressions like "age > 600"
-fn extract_number_from_comparison(expr: &str, op: &str) -> Option<String> {
-    expr.split(op)
-        .nth(1)
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-/// Extract quoted string from expression
-fn extract_quoted_string(expr: &str) -> Option<String> {
-    let start = expr.find('"')?;
-    let end = expr[start + 1..].find('"')?;
-    Some(expr[start + 1..start + 1 + end].to_string())
+    Ok(context)
 }
 
 #[cfg(test)]
@@ -192,60 +137,109 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_evaluation_context_from_pod() {
-        let pod = Pod::default();
-        let ctx = EvaluationContext::from_pod(&pod);
-        assert!(ctx.is_ok());
+    fn test_evaluator_new() {
+        let evaluator = CelEvaluator::new();
+        assert_eq!(evaluator.cache_size(), 0);
     }
 
     #[test]
-    fn test_pod_age_calculation() {
+    fn test_evaluator_clears_cache() {
+        let mut evaluator = CelEvaluator::new();
         let mut pod = Pod::default();
-        // Create a timestamp 1 hour ago
         let now = Utc::now();
-        let past = now - chrono::Duration::hours(1);
-
+        let past = now - chrono::Duration::seconds(700);
         pod.metadata.creation_timestamp =
             Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
 
-        let ctx = EvaluationContext::from_pod(&pod).unwrap();
-        if let Some(age) = ctx.pod_age_seconds() {
-            assert!(age > 3500 && age < 3700); // ~1 hour (allow some variance)
-        }
+        let _result = evaluator.evaluate("age > 600", &pod);
+        assert!(evaluator.cache_size() > 0);
+
+        evaluator.clear_cache();
+        assert_eq!(evaluator.cache_size(), 0);
     }
 
     #[test]
-    fn test_cel_expression_age_comparison() {
-        let pod = Pod::default();
-        let ctx = EvaluationContext::from_pod(&pod).unwrap();
+    fn test_simple_integer_comparison() {
+        let mut evaluator = CelEvaluator::new();
+        let mut pod = Pod::default();
+        let now = Utc::now();
+        let past = now - chrono::Duration::seconds(700);
+        pod.metadata.creation_timestamp =
+            Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
 
-        // Test age > 600
-        let result = evaluate_cel("age > 600", &ctx);
+        let result = evaluator.evaluate("age > 600", &pod);
         assert!(result.is_ok());
+        assert!(result.unwrap());
     }
 
     #[test]
-    fn test_cel_expression_phase_comparison() {
+    fn test_pod_age_less_than() {
+        let mut evaluator = CelEvaluator::new();
+        let mut pod = Pod::default();
+        let now = Utc::now();
+        let past = now - chrono::Duration::seconds(100);
+        pod.metadata.creation_timestamp =
+            Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
+
+        let result = evaluator.evaluate("age < 200", &pod);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_phase_comparison() {
+        let mut evaluator = CelEvaluator::new();
         let mut pod = Pod::default();
         pod.status = Some(k8s_openapi::api::core::v1::PodStatus {
             phase: Some("Failed".to_string()),
             ..Default::default()
         });
 
-        let ctx = EvaluationContext::from_pod(&pod).unwrap();
-        let result = evaluate_cel("status.phase == \"Failed\"", &ctx);
+        let result = evaluator.evaluate("phase == 'Failed'", &pod);
         assert!(result.is_ok());
+        assert!(result.unwrap());
     }
 
     #[test]
-    fn test_extract_number() {
-        let result = extract_number_from_comparison("age > 600", ">");
-        assert_eq!(result, Some("600".to_string()));
+    fn test_invalid_expression() {
+        let mut evaluator = CelEvaluator::new();
+        let pod = Pod::default();
+
+        let result = evaluator.evaluate("this is not valid cel !!!!", &pod);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_extract_quoted_string() {
-        let result = extract_quoted_string("phase == \"Failed\"");
-        assert_eq!(result, Some("Failed".to_string()));
+    fn test_compilation_error() {
+        let mut evaluator = CelEvaluator::new();
+        let pod = Pod::default();
+
+        let result = evaluator.evaluate("age >", &pod);
+        assert!(result.is_err());
+        if let Err(crate::Error::CelCompilationError(_)) = result {
+            // Expected
+        } else {
+            panic!("Expected CelCompilationError");
+        }
+    }
+
+    #[test]
+    fn test_cache_hit() {
+        let mut evaluator = CelEvaluator::new();
+        let mut pod = Pod::default();
+        let now = Utc::now();
+        let past = now - chrono::Duration::seconds(700);
+        pod.metadata.creation_timestamp =
+            Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
+
+        let expr = "age > 600";
+
+        // First evaluation - compilation happens
+        let _result1 = evaluator.evaluate(expr, &pod);
+        assert_eq!(evaluator.cache_size(), 1);
+
+        // Second evaluation - should use cache
+        let _result2 = evaluator.evaluate(expr, &pod);
+        assert_eq!(evaluator.cache_size(), 1);
     }
 }

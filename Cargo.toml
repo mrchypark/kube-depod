@@ -18,6 +18,7 @@ chrono = { version = "0.4", features = ["serde"] }
 schemars = "0.8"
 axum = "0.7"
 hyper = "1"
+cel = "0.11"
 
 [[bin]]
 name = "operator"

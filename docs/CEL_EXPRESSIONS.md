@@ -116,7 +116,7 @@ When evaluating expressions, the following Pod data is available:
 
 ```yaml
 apiVersion: kube-depod.io/v1alpha1
-kind: PolicyRule
+kind: DepodPolicy
 metadata:
   name: cleanup-failed
 spec:
@@ -139,7 +139,7 @@ spec:
 
 ```yaml
 apiVersion: kube-depod.io/v1alpha1
-kind: PolicyRule
+kind: DepodPolicy
 metadata:
   name: cleanup-old-test
 spec:
@@ -165,7 +165,7 @@ spec:
 
 ```yaml
 apiVersion: kube-depod.io/v1alpha1
-kind: PolicyRule
+kind: DepodPolicy
 metadata:
   name: test-policy-dryrun
 spec:

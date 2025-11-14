@@ -104,7 +104,7 @@ kubectl apply -f examples/ttl-policy.yaml
 kubectl apply -f examples/cel-policy.yaml
 
 # Check created policies
-kubectl get policyrules -A
+kubectl get depodpolicies -A
 
 # Monitor logs for matches
 kubectl -n kube-system logs -f -l app=kube-depod
@@ -121,7 +121,7 @@ kubectl delete deployment -n kube-system kube-depod
 kubectl delete serviceaccount -n kube-system kube-depod
 kubectl delete clusterrolebinding kube-depod
 kubectl delete clusterrole kube-depod
-kubectl delete crd policyrules.kube-depod.io
+kubectl delete crd depodpolicies.kube-depod.io
 ```
 
 ## Configuration
@@ -136,7 +136,7 @@ kubectl delete crd policyrules.kube-depod.io
 
 1. **ServiceAccount**: Operator runs as non-root user (UID 65534)
 2. **RBAC**: Minimal permissions granted
-   - Can read PolicyRules and Pods
+   - Can read DepodPolicys and Pods
    - Can delete Pods
    - Cannot modify other resources
 3. **Pod Security**: Read-only root filesystem where possible
@@ -209,11 +209,11 @@ kubectl -n kube-system logs -l app=kube-depod
 ### Policies not matching
 
 ```bash
-# Verify PolicyRule exists
-kubectl get policyrules -A
+# Verify DepodPolicy exists
+kubectl get depodpolicies -A
 
 # Check policy details
-kubectl describe policyrule <name> -n <namespace>
+kubectl describe depodpolicy <name> -n <namespace>
 
 # Enable debug logging
 # Edit deployment and set RUST_LOG=debug
@@ -231,7 +231,7 @@ kubectl -n kube-system rollout restart deployment/kube-depod
 
 ### High memory usage
 
-The operator caches PolicyRules in memory. With many policies (>1000), consider:
+The operator caches DepodPolicys in memory. With many policies (>1000), consider:
 
 - Reducing policy scope with better namespaceSelector/podSelector
 - Increasing memory limits in deployment

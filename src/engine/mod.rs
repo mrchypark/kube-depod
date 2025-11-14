@@ -1,3 +1,3 @@
 pub mod cel;
 
-pub use cel::{CelEvaluator, EvaluationContext};
+pub use cel::CelEvaluator;

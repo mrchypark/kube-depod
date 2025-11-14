@@ -10,9 +10,9 @@ kind: ClusterRole
 metadata:
   name: kube-depod
 rules:
-  # Read Policy CRD
+  # Read DepodPolicy CRD
   - apiGroups: ["kube-depod.io"]
-    resources: ["policies"]
+    resources: ["depodpolicies"]
     verbs: ["get", "list", "watch"]
 
   # Read Pods

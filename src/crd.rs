@@ -109,6 +109,11 @@ pub struct Limits {
     /// Protect system namespaces
     #[serde(default, rename = "protectSystemNamespaces")]
     pub protect_system_namespaces: bool,
+
+    /// List of additional namespaces to exclude from deletion
+    /// Comma-separated or as a YAML list
+    #[serde(default, rename = "excludedNamespaces")]
+    pub excluded_namespaces: Option<Vec<String>>,
 }
 
 impl DepodPolicySpec {
