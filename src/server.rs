@@ -1,9 +1,4 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    routing::get,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, routing::get, Router};
 use std::sync::Arc;
 use tracing::info;
 

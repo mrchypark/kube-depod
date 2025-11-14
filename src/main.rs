@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
 
     // Spawn a background task to periodically reload policies
     let policies_client = client.clone();
-    let policies = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let policies = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let policies_clone = policies.clone();
 
     tokio::spawn(async move {
@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
             interval.tick().await;
             match load_policies(&policies_client).await {
                 Ok(p) => {
-                    let mut policies_mut = policies_clone.lock().await;
+                    let mut policies_mut = policies_clone.write().await;
                     *policies_mut = p.clone();
                     if p.is_empty() {
                         tracing::debug!("No policies loaded");
@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
                 Ok(pods) => {
                     info!(count = pods.items.len(), "Re-evaluating all pods");
                     for pod in pods.items {
-                        let current_policies = reevaluate_policies.lock().await;
+                        let current_policies = reevaluate_policies.read().await;
                         reevaluate_metrics.increment_pods_evaluated();
                         match reconcile_pod_with_rate_limit(
                             pod,
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
         if !initial_policies.is_empty() {
             info!(count = initial_policies.len(), "Initial policies loaded");
         }
-        let mut policies_mut = policies.lock().await;
+        let mut policies_mut = policies.write().await;
         *policies_mut = initial_policies;
     }
 
@@ -145,8 +145,15 @@ async fn main() -> Result<()> {
                         match watch_event {
                             Event::Applied(pod) => {
                                 metrics.increment_pods_evaluated();
-                                let current_policies = policies.lock().await;
-                                match reconcile_pod_with_rate_limit(pod, &current_policies, &client, rate_limiter.clone()).await {
+                                let current_policies = policies.read().await;
+                                match reconcile_pod_with_rate_limit(
+                                    pod,
+                                    &current_policies,
+                                    &client,
+                                    rate_limiter.clone(),
+                                )
+                                .await
+                                {
                                     Ok(result) => {
                                         if result.deleted {
                                             metrics.increment_pods_deleted();

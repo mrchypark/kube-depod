@@ -26,7 +26,10 @@ impl CelEvaluator {
             Ok(result) => Ok(result),
             Err(e) => {
                 warn!("CEL evaluation error: {}", e);
-                Err(crate::Error::Custom(format!("CEL evaluation failed: {}", e)))
+                Err(crate::Error::Custom(format!(
+                    "CEL evaluation failed: {}",
+                    e
+                )))
             }
         }
     }
@@ -75,9 +78,8 @@ impl EvaluationContext {
 
     /// Get Pod age in seconds
     pub fn pod_age_seconds(&self) -> Option<i64> {
-        self.creation_timestamp().map(|created| {
-            (self.now - created).num_seconds()
-        })
+        self.creation_timestamp()
+            .map(|created| (self.now - created).num_seconds())
     }
 
     /// Get Pod namespace
@@ -99,7 +101,11 @@ impl EvaluationContext {
     /// Get Pod labels
     pub fn labels(&self) -> HashMap<String, String> {
         let mut labels = HashMap::new();
-        if let Some(obj) = self.object.pointer("/metadata/labels").and_then(|v| v.as_object()) {
+        if let Some(obj) = self
+            .object
+            .pointer("/metadata/labels")
+            .and_then(|v| v.as_object())
+        {
             for (k, v) in obj {
                 if let Some(s) = v.as_str() {
                     labels.insert(k.clone(), s.to_string());
@@ -199,7 +205,8 @@ mod tests {
         let now = Utc::now();
         let past = now - chrono::Duration::hours(1);
 
-        pod.metadata.creation_timestamp = Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
+        pod.metadata.creation_timestamp =
+            Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
 
         let ctx = EvaluationContext::from_pod(&pod).unwrap();
         if let Some(age) = ctx.pod_age_seconds() {

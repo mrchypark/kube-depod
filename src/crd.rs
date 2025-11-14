@@ -90,9 +90,9 @@ pub struct Then {
     #[serde(rename = "type")]
     pub action_type: String,
 
-    /// Grace period for deletion in seconds
-    #[serde(default, rename = "graceSeconds")]
-    pub grace_seconds: Option<i64>,
+    /// Grace period for deletion/eviction in seconds
+    #[serde(default, rename = "gracePeriodSeconds")]
+    pub grace_period_seconds: Option<i64>,
 
     /// Dry run mode (don't actually delete)
     #[serde(default, rename = "dryRun")]

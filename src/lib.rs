@@ -10,7 +10,7 @@ pub use error::{Error, Result};
 
 #[cfg(test)]
 mod tests {
-    use crate::crd::{DepodPolicySpec, Trigger, Match, When, Then, Limits};
+    use crate::crd::{DepodPolicySpec, Limits, Match, Then, Trigger, When};
 
     #[test]
     fn test_policy_validation() {
@@ -30,7 +30,7 @@ mod tests {
             },
             then: Then {
                 action_type: "Delete".to_string(),
-                grace_seconds: Some(30),
+                grace_period_seconds: Some(30),
                 dry_run: false,
             },
             limits: Limits {

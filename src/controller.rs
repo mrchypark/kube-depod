@@ -3,7 +3,9 @@ use crate::engine::CelEvaluator;
 use crate::rate_limiter::RateLimiter;
 use crate::Result;
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::{Api, DeleteParams, ListParams};
+use k8s_openapi::api::policy::v1::Eviction;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{DeleteOptions, ObjectMeta};
+use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube::{Client, ResourceExt};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
@@ -24,10 +26,8 @@ pub fn matches_policy(pod: &Pod, policy: &DepodPolicy) -> bool {
     // Check namespace
     if let Some(ns_selector) = &spec.match_.namespace_selector {
         let pod_ns = pod.namespace().unwrap_or_default();
-        if !ns_selector.match_names.is_empty() {
-            if !ns_selector.match_names.contains(&pod_ns) {
-                return false;
-            }
+        if !ns_selector.match_names.is_empty() && !ns_selector.match_names.contains(&pod_ns) {
+            return false;
         }
     }
 
@@ -98,7 +98,7 @@ pub async fn reconcile_pod_with_evaluator(
     let mut result = ReconcileResult::default();
 
     for policy in policies {
-        if !policy.spec.validate().is_ok() {
+        if policy.spec.validate().is_err() {
             warn!(
                 "Invalid policy {}: {:?}",
                 policy.name_any(),
@@ -135,55 +135,58 @@ pub async fn reconcile_pod_with_evaluator(
         result.matches += 1;
 
         // Evaluate when condition
-         let condition_met = match policy.spec.when.condition_type.as_str() {
-             "Builtin" => {
-                 if let Some(ttl_seconds) = policy.spec.when.ttl_seconds {
-                     evaluate_ttl_condition(&pod, ttl_seconds)
-                 } else {
-                     false
-                 }
-             }
-             "CEL" => {
-                 if let Some(expr) = &policy.spec.when.expression {
-                     match evaluator.lock() {
-                         Ok(mut eval) => match eval.evaluate(expr, &pod) {
-                             Ok(result) => {
-                                 debug!(
-                                     "CEL evaluation for pod {}/{}: {} = {}",
-                                     pod_ns, pod_name, expr, result
-                                 );
-                                 result
-                             }
-                             Err(e) => {
-                                 warn!(
-                                     "Failed to evaluate CEL expression for pod {}/{}: {}",
-                                     pod_ns, pod_name, e
-                                 );
-                                 result.errors += 1;
-                                 false
-                             }
-                         },
-                         Err(e) => {
-                             warn!("Failed to acquire evaluator lock: {}", e);
-                             result.errors += 1;
-                             false
-                         }
-                     }
-                 } else {
-                     warn!("CEL condition missing expression for policy {}", policy.name_any());
-                     result.errors += 1;
-                     false
-                 }
-             }
-             _ => {
-                 warn!(
-                     "Unknown condition type: {}",
-                     policy.spec.when.condition_type
-                 );
-                 result.errors += 1;
-                 false
-             }
-         };
+        let condition_met = match policy.spec.when.condition_type.as_str() {
+            "Builtin" => {
+                if let Some(ttl_seconds) = policy.spec.when.ttl_seconds {
+                    evaluate_ttl_condition(&pod, ttl_seconds)
+                } else {
+                    false
+                }
+            }
+            "CEL" => {
+                if let Some(expr) = &policy.spec.when.expression {
+                    match evaluator.lock() {
+                        Ok(mut eval) => match eval.evaluate(expr, &pod) {
+                            Ok(result) => {
+                                debug!(
+                                    "CEL evaluation for pod {}/{}: {} = {}",
+                                    pod_ns, pod_name, expr, result
+                                );
+                                result
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to evaluate CEL expression for pod {}/{}: {}",
+                                    pod_ns, pod_name, e
+                                );
+                                result.errors += 1;
+                                false
+                            }
+                        },
+                        Err(e) => {
+                            warn!("Failed to acquire evaluator lock: {}", e);
+                            result.errors += 1;
+                            false
+                        }
+                    }
+                } else {
+                    warn!(
+                        "CEL condition missing expression for policy {}",
+                        policy.name_any()
+                    );
+                    result.errors += 1;
+                    false
+                }
+            }
+            _ => {
+                warn!(
+                    "Unknown condition type: {}",
+                    policy.spec.when.condition_type
+                );
+                result.errors += 1;
+                false
+            }
+        };
 
         if !condition_met {
             debug!(
@@ -207,71 +210,130 @@ pub async fn reconcile_pod_with_evaluator(
         }
 
         // Execute then action
-         match policy.spec.then.action_type.as_str() {
-             "Delete" => {
-                 if policy.spec.then.dry_run {
-                     info!(
-                         "DRY RUN: Would delete pod {}/{} (policy: {})",
-                         pod_ns,
-                         pod_name,
-                         policy.name_any()
-                     );
-                 } else {
-                     // Check rate limit if enabled
-                     if let Some(limiter) = &rate_limiter {
-                         if !limiter.allow() {
-                             info!(
-                                 "Rate limit exceeded for pod {}/{} (policy: {})",
-                                 pod_ns,
-                                 pod_name,
-                                 policy.name_any()
-                             );
-                             result.rate_limited = true;
-                             continue;
-                         }
-                     }
+        match policy.spec.then.action_type.as_str() {
+            "Delete" => {
+                if policy.spec.then.dry_run {
+                    info!(
+                        "DRY RUN: Would delete pod {}/{} (policy: {})",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+                } else {
+                    // Check rate limit if enabled
+                    if let Some(limiter) = &rate_limiter {
+                        if !limiter.allow() {
+                            info!(
+                                "Rate limit exceeded for pod {}/{} (policy: {})",
+                                pod_ns,
+                                pod_name,
+                                policy.name_any()
+                            );
+                            result.rate_limited = true;
+                            continue;
+                        }
+                    }
 
-                     info!(
-                         "Deleting pod {}/{} (policy: {})",
-                         pod_ns,
-                         pod_name,
-                         policy.name_any()
-                     );
+                    info!(
+                        "Deleting pod {}/{} (policy: {})",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
 
-                     let api: Api<Pod> = Api::namespaced(client.clone(), &pod_ns);
-                     let dp = DeleteParams {
-                         grace_period_seconds: policy
-                             .spec
-                             .then
-                             .grace_seconds
-                             .map(|g| g as u32),
-                         ..Default::default()
-                     };
+                    let api: Api<Pod> = Api::namespaced(client.clone(), &pod_ns);
+                    let dp = DeleteParams {
+                        grace_period_seconds: policy
+                            .spec
+                            .then
+                            .grace_period_seconds
+                            .map(|g| g as u32),
+                        ..Default::default()
+                    };
 
-                     match api.delete(&pod_name, &dp).await {
-                         Ok(_) => {
-                             info!("Successfully deleted pod {}/{}", pod_ns, pod_name);
-                             result.deleted = true;
-                         }
-                         Err(e) => {
-                             warn!("Failed to delete pod {}/{}: {}", pod_ns, pod_name, e);
-                             result.errors += 1;
-                         }
-                     }
-                 }
-             }
-             "Evict" => {
-                 // TODO: Implement Evict in Phase 3
-                 info!(
-                     "Evict action not yet supported for pod {}/{}",
-                     pod_ns, pod_name
-                 );
-             }
-             _ => {
-                 warn!("Unknown action type: {}", policy.spec.then.action_type);
-                 result.errors += 1;
-             }
-         }
+                    match api.delete(&pod_name, &dp).await {
+                        Ok(_) => {
+                            info!("Successfully deleted pod {}/{}", pod_ns, pod_name);
+                            result.deleted = true;
+                        }
+                        Err(e) => {
+                            warn!("Failed to delete pod {}/{}: {}", pod_ns, pod_name, e);
+                            result.errors += 1;
+                        }
+                    }
+                }
+            }
+            "Evict" => {
+                if policy.spec.then.dry_run {
+                    info!(
+                        "DRY RUN: Would evict pod {}/{} (policy: {})",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+                } else {
+                    // Check rate limit if enabled
+                    if let Some(limiter) = &rate_limiter {
+                        if !limiter.allow() {
+                            info!(
+                                "Rate limit exceeded for pod {}/{} (policy: {})",
+                                pod_ns,
+                                pod_name,
+                                policy.name_any()
+                            );
+                            result.rate_limited = true;
+                            continue;
+                        }
+                    }
+
+                    info!(
+                        "Evicting pod {}/{} (policy: {}) - respects Pod Disruption Budgets",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+
+                    // Create eviction request respecting Pod Disruption Budgets
+                    let eviction = Eviction {
+                        metadata: ObjectMeta {
+                            name: Some(pod_name.clone()),
+                            namespace: Some(pod_ns.clone()),
+                            ..Default::default()
+                        },
+                        delete_options: Some(DeleteOptions {
+                            grace_period_seconds: policy.spec.then.grace_period_seconds,
+                            ..Default::default()
+                        }),
+                    };
+
+                    // Create the eviction request using Policy API v1
+                    // This respects Pod Disruption Budgets (PDBs) unlike direct deletion
+                    let api: Api<Eviction> = Api::all(client.clone());
+
+                    match api.create(&PostParams::default(), &eviction).await {
+                        Ok(_) => {
+                            info!(
+                                "Successfully evicted pod {}/{} (respects PDB)",
+                                pod_ns, pod_name
+                            );
+                            result.deleted = true;
+                        }
+                        Err(e) => {
+                            // If eviction fails (e.g., due to PDB), log as warning
+                            warn!(
+                                "Failed to evict pod {}/{} (respects PDB): {}",
+                                pod_ns, pod_name, e
+                            );
+                            result.errors += 1;
+                        }
+                    }
+                }
+            }
+            _ => {
+                warn!("Unknown action type: {}", policy.spec.then.action_type);
+                result.errors += 1;
+            }
+        }
 
         if result.deleted {
             break; // Stop processing further policies after successful deletion
@@ -282,7 +344,11 @@ pub async fn reconcile_pod_with_evaluator(
 }
 
 /// Wrapper for backward compatibility (without CEL evaluator)
-pub async fn reconcile_pod(pod: Pod, policies: &[DepodPolicy], client: &Client) -> Result<ReconcileResult> {
+pub async fn reconcile_pod(
+    pod: Pod,
+    policies: &[DepodPolicy],
+    client: &Client,
+) -> Result<ReconcileResult> {
     let evaluator = Arc::new(Mutex::new(CelEvaluator::new()));
     reconcile_pod_with_evaluator(pod, policies, client, evaluator, None).await
 }

@@ -22,23 +22,23 @@ spec:
 
   then:
     type: "Delete"
-    graceSeconds: 0
+    gracePeriodSeconds: 0
     dryRun: true # Set to false to actually delete
 
   limits:
     maxDeletesPerMinute: 5
     protectSystemNamespaces: true
----
-apiVersion: kube-depod.io/v1alpha1
-kind: DepodPolicy
-metadata:
+  ---
+  apiVersion: kube-depod.io/v1alpha1
+  kind: DepodPolicy
+  metadata:
   name: old-pod-policy
   namespace: default
-spec:
+  spec:
   match:
     namespaceSelector:
       matchNames:
-        - default
+         - default
     podSelector:
       matchLabels:
         ephemeral: "true"
@@ -54,7 +54,7 @@ spec:
 
   then:
     type: "Delete"
-    graceSeconds: 30
+    gracePeriodSeconds: 30
     dryRun: false
 
   limits:
