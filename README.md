@@ -66,6 +66,49 @@ cargo check
 cargo test
 ```
 
+### Metrics Endpoints
+
+The operator exposes Prometheus metrics on port 8080:
+
+```bash
+# Get Prometheus format metrics
+curl http://localhost:8080/metrics
+
+# Health check
+curl http://localhost:8080/health
+```
+
+Example metrics output:
+```
+# HELP kube_depod_pods_evaluated_total Total number of pods evaluated
+# TYPE kube_depod_pods_evaluated_total counter
+kube_depod_pods_evaluated_total {} 42
+
+# HELP kube_depod_pods_deleted_total Total number of pods deleted
+# TYPE kube_depod_pods_deleted_total counter
+kube_depod_pods_deleted_total {} 5
+
+# HELP kube_depod_policy_matches_total Total number of policy matches
+# TYPE kube_depod_policy_matches_total counter
+kube_depod_policy_matches_total {} 8
+
+# HELP kube_depod_evaluation_errors_total Total number of evaluation errors
+# TYPE kube_depod_evaluation_errors_total counter
+kube_depod_evaluation_errors_total {} 0
+
+# HELP kube_depod_rate_limited_total Total number of rate limit hits
+# TYPE kube_depod_rate_limited_total counter
+kube_depod_rate_limited_total {} 2
+```
+
+### Rate Limiting
+
+The operator includes token bucket rate limiting to prevent overwhelming the Kubernetes API:
+
+- Default: 20 deletes per minute
+- Configurable via environment or code
+- Gracefully handles rate limit exceeding by skipping deletion but continuing to process other pods
+
 ## Example PolicyRules
 
 ### Builtin TTL Policy
@@ -89,10 +132,16 @@ For CEL expression documentation, see `docs/CEL_EXPRESSIONS.md`
 - ✅ Pod context mapping (age, phase, namespace)
 - ✅ Expression evaluation and caching
 
-### Phase 3: Observability
-- Prometheus metrics
-- Rate limiting implementation
-- Enhanced logging
+#### Phase 3: Observability ✅ (Complete)
+- ✅ Prometheus metrics endpoint (`:8080/metrics`)
+- ✅ Rate limiting implementation (token bucket, configurable per minute)
+- ✅ Health check endpoint (`:8080/health`)
+- ✅ Metrics tracking:
+  - Total pods evaluated
+  - Total pods deleted
+  - Total policy matches
+  - Total evaluation errors
+  - Total rate limit hits
 
 ### Phase 4: Advanced Features
 - Evict action support
@@ -103,13 +152,19 @@ For CEL expression documentation, see `docs/CEL_EXPRESSIONS.md`
 
 ```
 src/
-├── main.rs          # Entrypoint, Pod watcher
-├── lib.rs           # Library root
-├── crd.rs           # PolicyRule CRD definition
-├── controller.rs    # Reconciliation logic
-├── error.rs         # Error types
+├── main.rs              # Entrypoint, Pod watcher, metrics collection
+├── lib.rs               # Library root
+├── crd.rs               # PolicyRule CRD definition
+├── controller.rs        # Reconciliation logic
+├── error.rs             # Error types
+├── metrics.rs           # Prometheus metrics collection
+├── server.rs            # HTTP server for metrics/health endpoints
+├── rate_limiter.rs      # Token bucket rate limiter
+└── engine/
+    ├── mod.rs           # Engine module
+    └── cel.rs           # CEL expression evaluator
 examples/
-├── ttl-policy.yaml  # Example PolicyRule and Pod
+├── ttl-policy.yaml      # Example PolicyRule and Pod
 ```
 
 ## Development

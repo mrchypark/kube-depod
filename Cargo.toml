@@ -16,6 +16,8 @@ thiserror = "1"
 futures = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 schemars = "0.8"
+axum = "0.7"
+hyper = "1"
 
 [[bin]]
 name = "operator"

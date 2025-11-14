@@ -2,6 +2,9 @@ pub mod controller;
 pub mod crd;
 pub mod engine;
 pub mod error;
+pub mod metrics;
+pub mod rate_limiter;
+pub mod server;
 
 pub use error::{Error, Result};
 

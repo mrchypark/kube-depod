@@ -1,0 +1,72 @@
+apiVersion: kube-depod.io/v1alpha1
+kind: PolicyRule
+metadata:
+  name: test-ttl-policy
+  namespace: test-depod
+spec:
+  target:
+    namespace_selector:
+      match_names:
+        - test-depod
+    pod_selector:
+      match_labels:
+        app: test-app
+  trigger:
+    annotation_key: "kube-depod/policy"
+    annotation_values:
+      - "ttl-test"
+  condition:
+    condition_type: "Builtin"
+    ttl_seconds: 5  # 5 seconds for testing
+  action:
+    action_type: "Delete"
+    grace_period_seconds: 30
+    dry_run: true  # dry-run mode for safety
+  limits:
+    max_deletes_per_minute: 20
+    protect_system_namespaces: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-1
+  namespace: test-depod
+  labels:
+    app: test-app
+  annotations:
+    kube-depod/policy: "ttl-test"
+spec:
+  containers:
+  - name: busybox
+    image: busybox:latest
+    command: ["sleep", "3600"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-2
+  namespace: test-depod
+  labels:
+    app: test-app
+  annotations:
+    kube-depod/policy: "ttl-test"
+spec:
+  containers:
+  - name: busybox
+    image: busybox:latest
+    command: ["sleep", "3600"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-3
+  namespace: test-depod
+  labels:
+    app: test-app
+  annotations:
+    kube-depod/policy: "ttl-test"
+spec:
+  containers:
+  - name: busybox
+    image: busybox:latest
+    command: ["sleep", "3600"]

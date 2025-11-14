@@ -1,11 +1,21 @@
 use crate::crd::PolicyRule;
 use crate::engine::CelEvaluator;
+use crate::rate_limiter::RateLimiter;
 use crate::Result;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, DeleteParams, ListParams};
 use kube::{Client, ResourceExt};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
+
+/// Result of pod reconciliation
+#[derive(Debug, Default)]
+pub struct ReconcileResult {
+    pub deleted: bool,
+    pub matches: u32,
+    pub errors: u32,
+    pub rate_limited: bool,
+}
 
 /// Matches a pod against a policy rule
 pub fn matches_policy(pod: &Pod, policy: &PolicyRule) -> bool {
@@ -78,13 +88,14 @@ pub async fn reconcile_pod_with_evaluator(
     policies: &[PolicyRule],
     client: &Client,
     evaluator: Arc<Mutex<CelEvaluator>>,
-) -> Result<()> {
+    rate_limiter: Option<Arc<RateLimiter>>,
+) -> Result<ReconcileResult> {
     let pod_name = pod.name_any();
     let pod_ns = pod.namespace().unwrap_or_default();
 
     debug!("Reconciling pod {}/{}", pod_ns, pod_name);
 
-    let mut deleted = false;
+    let mut result = ReconcileResult::default();
 
     for policy in policies {
         if !policy.spec.validate().is_ok() {
@@ -93,6 +104,7 @@ pub async fn reconcile_pod_with_evaluator(
                 policy.name_any(),
                 policy.spec.validate()
             );
+            result.errors += 1;
             continue;
         }
 
@@ -120,6 +132,8 @@ pub async fn reconcile_pod_with_evaluator(
             continue;
         }
 
+        result.matches += 1;
+
         // Evaluate condition
         let condition_met = match policy.spec.condition.condition_type.as_str() {
             "Builtin" => {
@@ -145,16 +159,19 @@ pub async fn reconcile_pod_with_evaluator(
                                     "Failed to evaluate CEL expression for pod {}/{}: {}",
                                     pod_ns, pod_name, e
                                 );
+                                result.errors += 1;
                                 false
                             }
                         },
                         Err(e) => {
                             warn!("Failed to acquire evaluator lock: {}", e);
+                            result.errors += 1;
                             false
                         }
                     }
                 } else {
                     warn!("CEL condition missing expression for policy {}", policy.name_any());
+                    result.errors += 1;
                     false
                 }
             }
@@ -163,6 +180,7 @@ pub async fn reconcile_pod_with_evaluator(
                     "Unknown condition type: {}",
                     policy.spec.condition.condition_type
                 );
+                result.errors += 1;
                 false
             }
         };
@@ -199,6 +217,20 @@ pub async fn reconcile_pod_with_evaluator(
                         policy.name_any()
                     );
                 } else {
+                    // Check rate limit if enabled
+                    if let Some(limiter) = &rate_limiter {
+                        if !limiter.allow() {
+                            info!(
+                                "Rate limit exceeded for pod {}/{} (policy: {})",
+                                pod_ns,
+                                pod_name,
+                                policy.name_any()
+                            );
+                            result.rate_limited = true;
+                            continue;
+                        }
+                    }
+
                     info!(
                         "Deleting pod {}/{} (policy: {})",
                         pod_ns,
@@ -219,10 +251,11 @@ pub async fn reconcile_pod_with_evaluator(
                     match api.delete(&pod_name, &dp).await {
                         Ok(_) => {
                             info!("Successfully deleted pod {}/{}", pod_ns, pod_name);
-                            deleted = true;
+                            result.deleted = true;
                         }
                         Err(e) => {
                             warn!("Failed to delete pod {}/{}: {}", pod_ns, pod_name, e);
+                            result.errors += 1;
                         }
                     }
                 }
@@ -236,21 +269,33 @@ pub async fn reconcile_pod_with_evaluator(
             }
             _ => {
                 warn!("Unknown action type: {}", policy.spec.action.action_type);
+                result.errors += 1;
             }
         }
 
-        if deleted {
+        if result.deleted {
             break; // Stop processing further policies after successful deletion
         }
     }
 
-    Ok(())
+    Ok(result)
 }
 
 /// Wrapper for backward compatibility (without CEL evaluator)
-pub async fn reconcile_pod(pod: Pod, policies: &[PolicyRule], client: &Client) -> Result<()> {
+pub async fn reconcile_pod(pod: Pod, policies: &[PolicyRule], client: &Client) -> Result<ReconcileResult> {
     let evaluator = Arc::new(Mutex::new(CelEvaluator::new()));
-    reconcile_pod_with_evaluator(pod, policies, client, evaluator).await
+    reconcile_pod_with_evaluator(pod, policies, client, evaluator, None).await
+}
+
+/// Wrapper with rate limiter support
+pub async fn reconcile_pod_with_rate_limit(
+    pod: Pod,
+    policies: &[PolicyRule],
+    client: &Client,
+    rate_limiter: Arc<RateLimiter>,
+) -> Result<ReconcileResult> {
+    let evaluator = Arc::new(Mutex::new(CelEvaluator::new()));
+    reconcile_pod_with_evaluator(pod, policies, client, evaluator, Some(rate_limiter)).await
 }
 
 /// Load all policy rules

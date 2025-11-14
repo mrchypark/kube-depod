@@ -30,75 +30,75 @@ spec:
                 target:
                   type: object
                   properties:
-                    namespaceSelector:
+                    namespace_selector:
                       type: object
                       properties:
-                        matchNames:
+                        match_names:
                           type: array
                           items:
                             type: string
-                    podSelector:
+                    pod_selector:
                       type: object
                       properties:
-                        matchLabels:
+                        match_labels:
                           type: object
                           additionalProperties:
                             type: string
                 trigger:
-                  type: object
-                  required:
-                    - annotationKey
-                    - annotationValues
-                  properties:
-                    annotationKey:
-                      type: string
-                      description: Annotation key to look for
-                    annotationValues:
-                      type: array
-                      items:
-                        type: string
-                      description: Accepted annotation values
+                   type: object
+                   required:
+                     - annotation_key
+                     - annotation_values
+                   properties:
+                     annotation_key:
+                       type: string
+                       description: Annotation key to look for
+                     annotation_values:
+                       type: array
+                       items:
+                         type: string
+                       description: Accepted annotation values
                 condition:
-                  type: object
-                  required:
-                    - type
-                  properties:
-                    type:
-                      type: string
-                      enum: ["Builtin", "CEL"]
-                      description: Condition type
-                    expression:
-                      type: string
-                      description: CEL expression (required for CEL type)
-                    ttlSeconds:
-                      type: integer
-                      description: TTL in seconds (required for Builtin type)
+                   type: object
+                   required:
+                     - condition_type
+                   properties:
+                     condition_type:
+                       type: string
+                       enum: ["Builtin", "CEL"]
+                       description: Condition type
+                     expression:
+                       type: string
+                       description: CEL expression (required for CEL type)
+                     ttl_seconds:
+                       type: integer
+                       description: TTL in seconds (required for Builtin type)
                 action:
-                  type: object
-                  required:
-                    - type
-                  properties:
-                    type:
-                      type: string
-                      enum: ["Delete", "Evict"]
-                      description: Action type
-                    gracePeriodSeconds:
-                      type: integer
-                      description: Grace period for deletion
-                    dryRun:
-                      type: boolean
-                      default: false
-                      description: Dry-run mode (no actual deletion)
+                   type: object
+                   required:
+                     - action_type
+                   properties:
+                     action_type:
+                       type: string
+                       enum: ["Delete", "Evict"]
+                       description: Action type
+                     grace_period_seconds:
+                       type: integer
+                       description: Grace period for deletion
+                     dry_run:
+                       type: boolean
+                       default: false
+                       description: Dry-run mode (no actual deletion)
                 limits:
-                  type: object
-                  properties:
-                    maxDeletesPerMinute:
-                      type: integer
-                      description: Max pods to delete per minute
-                    protectSystemNamespaces:
-                      type: boolean
-                      default: true
-                      description: Protect system namespaces
+                   type: object
+                   properties:
+                     max_deletes_per_minute:
+                       type: integer
+                       description: Max pods to delete per minute
+                     protect_system_namespaces:
+                       type: boolean
+                       default: true
+                       description: Protect system namespaces
       additionalPrinterColumns:
         - jsonPath: .spec.condition.type
           name: Condition Type
