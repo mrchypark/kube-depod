@@ -4,7 +4,7 @@ Kubernetes operator for automated Pod cleanup based on annotation-driven policie
 
 ## Overview
 
-kube-depod is a Rust-based Kubernetes operator that automatically deletes Pods based on configurable `Policy` CRDs. It supports:
+kube-depod is a Rust-based Kubernetes operator that automatically deletes Pods based on configurable `DepodPolicy` CRDs. It supports:
 
 - **Annotation-driven triggers**: Policies activate when Pods have specific annotations
 - **Flexible conditions**: TTL-based (Builtin) or CEL expression-based conditions
@@ -14,12 +14,12 @@ kube-depod is a Rust-based Kubernetes operator that automatically deletes Pods b
 ## Architecture
 
 ```
-Policy CRD
+DepodPolicy CRD
       ↓
 kube-depod Operator
   - Watch Pods
-  - Load & cache Policies
-  - Match Pods against Policies
+  - Load & cache DepodPolicies
+  - Match Pods against DepodPolicies
   - Evaluate Conditions
   - Execute Actions (Delete/Evict)
       ↓
@@ -29,7 +29,7 @@ Kubernetes API Server
 ## Phase 1-2: MVP + CEL Features (Current)
 
 ✅ **Completed:**
-- Policy CRD definition with validation
+- DepodPolicy CRD definition with validation
 - Pod watching and reconciliation loop
 - Annotation-based policy triggers
 - Builtin TTL condition evaluation
@@ -174,7 +174,7 @@ For CEL expression documentation, see `docs/CEL_EXPRESSIONS.md`
 src/
 ├── main.rs              # Entrypoint, Pod watcher, metrics collection
 ├── lib.rs               # Library root
-├── crd.rs               # Policy CRD definition
+├── crd.rs               # DepodPolicy CRD definition
 ├── controller.rs        # Reconciliation logic
 ├── error.rs             # Error types
 ├── metrics.rs           # Prometheus metrics collection
@@ -184,7 +184,7 @@ src/
     ├── mod.rs           # Engine module
     └── cel.rs           # CEL expression evaluator
 examples/
-├── ttl-policy.yaml      # Example Policy and Pod
+├── ttl-policy.yaml      # Example DepodPolicy and Pod
 ```
 
 ## Development

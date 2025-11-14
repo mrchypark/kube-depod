@@ -22,7 +22,7 @@ pub fn matches_policy(pod: &Pod, policy: &Policy) -> bool {
     let spec = &policy.spec;
 
     // Check namespace
-    if let Some(ns_selector) = &spec.target.namespace_selector {
+    if let Some(ns_selector) = &spec.match_.namespace_selector {
         let pod_ns = pod.namespace().unwrap_or_default();
         if !ns_selector.match_names.is_empty() {
             if !ns_selector.match_names.contains(&pod_ns) {
@@ -32,7 +32,7 @@ pub fn matches_policy(pod: &Pod, policy: &Policy) -> bool {
     }
 
     // Check pod labels
-    if let Some(pod_selector) = &spec.target.pod_selector {
+    if let Some(pod_selector) = &spec.match_.pod_selector {
         if !pod_selector.match_labels.is_empty() {
             let pod_labels = pod.labels();
             for (key, value) in &pod_selector.match_labels {
@@ -134,56 +134,56 @@ pub async fn reconcile_pod_with_evaluator(
 
         result.matches += 1;
 
-        // Evaluate condition
-        let condition_met = match policy.spec.condition.condition_type.as_str() {
-            "Builtin" => {
-                if let Some(ttl_seconds) = policy.spec.condition.ttl_seconds {
-                    evaluate_ttl_condition(&pod, ttl_seconds)
-                } else {
-                    false
-                }
-            }
-            "CEL" => {
-                if let Some(expr) = &policy.spec.condition.expression {
-                    match evaluator.lock() {
-                        Ok(mut eval) => match eval.evaluate(expr, &pod) {
-                            Ok(result) => {
-                                debug!(
-                                    "CEL evaluation for pod {}/{}: {} = {}",
-                                    pod_ns, pod_name, expr, result
-                                );
-                                result
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "Failed to evaluate CEL expression for pod {}/{}: {}",
-                                    pod_ns, pod_name, e
-                                );
-                                result.errors += 1;
-                                false
-                            }
-                        },
-                        Err(e) => {
-                            warn!("Failed to acquire evaluator lock: {}", e);
-                            result.errors += 1;
-                            false
-                        }
-                    }
-                } else {
-                    warn!("CEL condition missing expression for policy {}", policy.name_any());
-                    result.errors += 1;
-                    false
-                }
-            }
-            _ => {
-                warn!(
-                    "Unknown condition type: {}",
-                    policy.spec.condition.condition_type
-                );
-                result.errors += 1;
-                false
-            }
-        };
+        // Evaluate when condition
+         let condition_met = match policy.spec.when.condition_type.as_str() {
+             "Builtin" => {
+                 if let Some(ttl_seconds) = policy.spec.when.ttl_seconds {
+                     evaluate_ttl_condition(&pod, ttl_seconds)
+                 } else {
+                     false
+                 }
+             }
+             "CEL" => {
+                 if let Some(expr) = &policy.spec.when.expression {
+                     match evaluator.lock() {
+                         Ok(mut eval) => match eval.evaluate(expr, &pod) {
+                             Ok(result) => {
+                                 debug!(
+                                     "CEL evaluation for pod {}/{}: {} = {}",
+                                     pod_ns, pod_name, expr, result
+                                 );
+                                 result
+                             }
+                             Err(e) => {
+                                 warn!(
+                                     "Failed to evaluate CEL expression for pod {}/{}: {}",
+                                     pod_ns, pod_name, e
+                                 );
+                                 result.errors += 1;
+                                 false
+                             }
+                         },
+                         Err(e) => {
+                             warn!("Failed to acquire evaluator lock: {}", e);
+                             result.errors += 1;
+                             false
+                         }
+                     }
+                 } else {
+                     warn!("CEL condition missing expression for policy {}", policy.name_any());
+                     result.errors += 1;
+                     false
+                 }
+             }
+             _ => {
+                 warn!(
+                     "Unknown condition type: {}",
+                     policy.spec.when.condition_type
+                 );
+                 result.errors += 1;
+                 false
+             }
+         };
 
         if !condition_met {
             debug!(
@@ -206,72 +206,72 @@ pub async fn reconcile_pod_with_evaluator(
             continue;
         }
 
-        // Execute action
-        match policy.spec.action.action_type.as_str() {
-            "Delete" => {
-                if policy.spec.action.dry_run {
-                    info!(
-                        "DRY RUN: Would delete pod {}/{} (policy: {})",
-                        pod_ns,
-                        pod_name,
-                        policy.name_any()
-                    );
-                } else {
-                    // Check rate limit if enabled
-                    if let Some(limiter) = &rate_limiter {
-                        if !limiter.allow() {
-                            info!(
-                                "Rate limit exceeded for pod {}/{} (policy: {})",
-                                pod_ns,
-                                pod_name,
-                                policy.name_any()
-                            );
-                            result.rate_limited = true;
-                            continue;
-                        }
-                    }
+        // Execute then action
+         match policy.spec.then.action_type.as_str() {
+             "Delete" => {
+                 if policy.spec.then.dry_run {
+                     info!(
+                         "DRY RUN: Would delete pod {}/{} (policy: {})",
+                         pod_ns,
+                         pod_name,
+                         policy.name_any()
+                     );
+                 } else {
+                     // Check rate limit if enabled
+                     if let Some(limiter) = &rate_limiter {
+                         if !limiter.allow() {
+                             info!(
+                                 "Rate limit exceeded for pod {}/{} (policy: {})",
+                                 pod_ns,
+                                 pod_name,
+                                 policy.name_any()
+                             );
+                             result.rate_limited = true;
+                             continue;
+                         }
+                     }
 
-                    info!(
-                        "Deleting pod {}/{} (policy: {})",
-                        pod_ns,
-                        pod_name,
-                        policy.name_any()
-                    );
+                     info!(
+                         "Deleting pod {}/{} (policy: {})",
+                         pod_ns,
+                         pod_name,
+                         policy.name_any()
+                     );
 
-                    let api: Api<Pod> = Api::namespaced(client.clone(), &pod_ns);
-                    let dp = DeleteParams {
-                        grace_period_seconds: policy
-                            .spec
-                            .action
-                            .grace_period_seconds
-                            .map(|g| g as u32),
-                        ..Default::default()
-                    };
+                     let api: Api<Pod> = Api::namespaced(client.clone(), &pod_ns);
+                     let dp = DeleteParams {
+                         grace_period_seconds: policy
+                             .spec
+                             .then
+                             .grace_seconds
+                             .map(|g| g as u32),
+                         ..Default::default()
+                     };
 
-                    match api.delete(&pod_name, &dp).await {
-                        Ok(_) => {
-                            info!("Successfully deleted pod {}/{}", pod_ns, pod_name);
-                            result.deleted = true;
-                        }
-                        Err(e) => {
-                            warn!("Failed to delete pod {}/{}: {}", pod_ns, pod_name, e);
-                            result.errors += 1;
-                        }
-                    }
-                }
-            }
-            "Evict" => {
-                // TODO: Implement Evict in Phase 3
-                info!(
-                    "Evict action not yet supported for pod {}/{}",
-                    pod_ns, pod_name
-                );
-            }
-            _ => {
-                warn!("Unknown action type: {}", policy.spec.action.action_type);
-                result.errors += 1;
-            }
-        }
+                     match api.delete(&pod_name, &dp).await {
+                         Ok(_) => {
+                             info!("Successfully deleted pod {}/{}", pod_ns, pod_name);
+                             result.deleted = true;
+                         }
+                         Err(e) => {
+                             warn!("Failed to delete pod {}/{}: {}", pod_ns, pod_name, e);
+                             result.errors += 1;
+                         }
+                     }
+                 }
+             }
+             "Evict" => {
+                 // TODO: Implement Evict in Phase 3
+                 info!(
+                     "Evict action not yet supported for pod {}/{}",
+                     pod_ns, pod_name
+                 );
+             }
+             _ => {
+                 warn!("Unknown action type: {}", policy.spec.then.action_type);
+                 result.errors += 1;
+             }
+         }
 
         if result.deleted {
             break; // Stop processing further policies after successful deletion

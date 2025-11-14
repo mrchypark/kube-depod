@@ -1,30 +1,34 @@
 apiVersion: kube-depod.io/v1alpha1
-kind: Policy
+kind: DepodPolicy
 metadata:
   name: test-ttl-policy
   namespace: test-depod
 spec:
-  target:
-    namespace_selector:
-      match_names:
+  match:
+    namespaceSelector:
+      matchNames:
         - test-depod
-    pod_selector:
-      match_labels:
+    podSelector:
+      matchLabels:
         app: test-app
+
   trigger:
-    annotation_key: "kube-depod/policy"
-    annotation_values:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
       - "ttl-test"
-  condition:
-    condition_type: "Builtin"
-    ttl_seconds: 5  # 5 seconds for testing
-  action:
-    action_type: "Delete"
-    grace_period_seconds: 30
-    dry_run: true  # dry-run mode for safety
+
+  when:
+    type: "Builtin"
+    ttlSeconds: 10
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 0
+    dryRun: true
+
   limits:
-    max_deletes_per_minute: 20
-    protect_system_namespaces: true
+    maxDeletesPerMinute: 20
+    protectSystemNamespaces: true
 ---
 apiVersion: v1
 kind: Pod

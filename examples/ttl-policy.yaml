@@ -1,10 +1,10 @@
 apiVersion: kube-depod.io/v1alpha1
-kind: Policy
+kind: DepodPolicy
 metadata:
   name: ttl-10m-policy
   namespace: default
 spec:
-  target:
+  match:
     namespaceSelector:
       matchNames:
         - default
@@ -17,11 +17,11 @@ spec:
     annotationValues:
       - "ttl-10m"
 
-  condition:
+  when:
     type: "Builtin"
     ttlSeconds: 600  # 10 minutes
 
-  action:
+  then:
     type: "Delete"
     gracePeriodSeconds: 30
     dryRun: false

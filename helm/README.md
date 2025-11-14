@@ -41,7 +41,7 @@ helm upgrade kube-depod kube-depod/kube-depod
 ```bash
 helm uninstall kube-depod
 
-# Remove CRDs (optional, be careful as it will delete all Policy resources)
+# Remove CRDs (optional, be careful as it will delete all DepodPolicy resources)
 kubectl delete crd policies.kube-depod.io
 ```
 
@@ -106,7 +106,7 @@ CRDs are automatically installed from the `crds/` directory in the chart.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `crds.enabled` | Install Policy CRD | `true` |
+| `crds.enabled` | Install DepodPolicy CRD | `true` |
 
 ## Examples
 
@@ -155,18 +155,18 @@ curl http://localhost:8080/metrics
 curl http://localhost:8080/health
 ```
 
-## Creating Policies
+## Creating DepodPolicies
 
-After installation, you can create Policy resources:
+After installation, you can create DepodPolicy resources:
 
 ```yaml
 apiVersion: kube-depod.io/v1alpha1
-kind: Policy
+kind: DepodPolicy
 metadata:
   name: ttl-10m-policy
   namespace: default
 spec:
-  target:
+  match:
     namespaceSelector:
       matchNames:
         - default
@@ -177,10 +177,10 @@ spec:
     annotationKey: "kube-depod/policy"
     annotationValues:
       - "ttl-10m"
-  condition:
+  when:
     type: "Builtin"
     ttlSeconds: 600
-  action:
+  then:
     type: "Delete"
     gracePeriodSeconds: 30
     dryRun: false

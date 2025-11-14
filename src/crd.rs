@@ -3,34 +3,34 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Policy CRD for automated Pod cleanup
+/// DepodPolicy CRD for automated Pod cleanup
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[kube(
     group = "kube-depod.io",
     version = "v1alpha1",
-    kind = "Policy",
+    kind = "DepodPolicy",
     namespaced
 )]
 pub struct PolicySpec {
-    /// Target namespace and pod selectors
-    pub target: Target,
+    /// Match namespace and pod selectors
+    pub match_: Match,
 
     /// Trigger condition (annotation-based)
     pub trigger: Trigger,
 
-    /// Condition expression for evaluation
-    pub condition: Condition,
+    /// When condition (expression for evaluation)
+    pub when: When,
 
-    /// Action to perform
-    pub action: Action,
+    /// Then action to perform
+    pub then: Then,
 
     /// Safety limits
     pub limits: Limits,
 }
 
-/// Target specifies which pods are affected by this policy
+/// Match specifies which pods are affected by this policy
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct Target {
+pub struct Match {
     /// Namespace selector (matchNames or matchExpressions)
     #[serde(default)]
     pub namespace_selector: Option<NamespaceSelector>,
@@ -64,9 +64,9 @@ pub struct Trigger {
     pub annotation_values: Vec<String>,
 }
 
-/// Condition specifies the evaluation rule
+/// When specifies the evaluation rule
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct Condition {
+pub struct When {
     /// Type of condition: CEL or Builtin
     #[serde(rename = "type")]
     pub condition_type: String,
@@ -80,16 +80,16 @@ pub struct Condition {
     pub ttl_seconds: Option<i64>,
 }
 
-/// Action specifies what to do when condition is met
+/// Then specifies what to do when condition is met
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct Action {
+pub struct Then {
     /// Type of action: Delete, Evict, etc.
     #[serde(rename = "type")]
     pub action_type: String,
 
-    /// Grace period for deletion
-    #[serde(default)]
-    pub grace_period_seconds: Option<i64>,
+    /// Grace period for deletion in seconds
+    #[serde(default, rename = "graceSeconds")]
+    pub grace_seconds: Option<i64>,
 
     /// Dry run mode (don't actually delete)
     #[serde(default)]

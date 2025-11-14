@@ -5,7 +5,7 @@ metadata:
 spec:
   group: kube-depod.io
   names:
-    kind: Policy
+    kind: DepodPolicy
     plural: policies
     shortNames:
       - pol
