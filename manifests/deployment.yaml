@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-depod
+  namespace: kube-system
+  labels:
+    app: kube-depod
+    version: v0.1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-depod
+  template:
+    metadata:
+      labels:
+        app: kube-depod
+        version: v0.1.0
+    spec:
+      serviceAccountName: kube-depod
+      containers:
+      - name: operator
+        image: kube-depod:latest
+        imagePullPolicy: Never  # For local development; change to IfNotPresent for production
+        env:
+        - name: RUST_LOG
+          value: "kube_depod=info,kube=info"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "ps aux | grep operator || exit 1"
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 65534  # nobody user
+          capabilities:
+            drop:
+              - ALL
+      securityContext:
+        fsGroup: 65534
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - kube-depod
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule

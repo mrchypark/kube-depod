@@ -1,0 +1,61 @@
+apiVersion: kube-depod.io/v1alpha1
+kind: PolicyRule
+metadata:
+  name: failed-pod-policy
+  namespace: default
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - default
+    podSelector: {}
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "cleanup-failed"
+
+  condition:
+    type: "CEL"
+    expression: "status.phase == \"Failed\""
+
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 0
+    dryRun: true  # Set to false to actually delete
+
+  limits:
+    maxDeletesPerMinute: 5
+    protectSystemNamespaces: true
+---
+apiVersion: kube-depod.io/v1alpha1
+kind: PolicyRule
+metadata:
+  name: old-pod-policy
+  namespace: default
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - default
+    podSelector:
+      matchLabels:
+        ephemeral: "true"
+
+  trigger:
+    annotationKey: "kube-depod/cleanup"
+    annotationValues:
+      - "auto"
+
+  condition:
+    type: "CEL"
+    expression: "age > 1800"  # 30 minutes
+
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 30
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 10
+    protectSystemNamespaces: true

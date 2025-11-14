@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-depod
+  namespace: kube-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-depod
+rules:
+  # Read PolicyRule CRD
+  - apiGroups: ["kube-depod.io"]
+    resources: ["policyrules"]
+    verbs: ["get", "list", "watch"]
+
+  # Read Pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+  # Delete Pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete", "deletecollection"]
+
+  # Create pod eviction subresource (for future use)
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+
+  # Read pod logs for debugging
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  # Read events for status updates
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-depod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-depod
+subjects:
+  - kind: ServiceAccount
+    name: kube-depod
+    namespace: kube-system

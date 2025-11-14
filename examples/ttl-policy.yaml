@@ -1,0 +1,46 @@
+apiVersion: kube-depod.io/v1alpha1
+kind: PolicyRule
+metadata:
+  name: ttl-10m-policy
+  namespace: default
+spec:
+  target:
+    namespaceSelector:
+      matchNames:
+        - default
+    podSelector:
+      matchLabels:
+        app: my-app
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "ttl-10m"
+
+  condition:
+    type: "Builtin"
+    ttlSeconds: 600  # 10 minutes
+
+  action:
+    type: "Delete"
+    gracePeriodSeconds: 30
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 20
+    protectSystemNamespaces: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+  namespace: default
+  labels:
+    app: my-app
+  annotations:
+    kube-depod/policy: "ttl-10m"
+spec:
+  containers:
+  - name: busybox
+    image: busybox:latest
+    command: ["sleep", "3600"]

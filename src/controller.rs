@@ -1,22 +1,265 @@
-use crate::crd::Example;
+use crate::crd::PolicyRule;
+use crate::engine::CelEvaluator;
 use crate::Result;
-use kube::api::ListParams;
-use kube::{Api, Client};
-use tracing::{debug, error, info};
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::{Api, DeleteParams, ListParams};
+use kube::{Client, ResourceExt};
+use std::sync::{Arc, Mutex};
+use tracing::{debug, info, warn};
 
-/// Main controller reconciliation logic
-pub async fn reconcile(client: Client) -> Result<()> {
-    let api: Api<Example> = Api::all(client);
+/// Matches a pod against a policy rule
+pub fn matches_policy(pod: &Pod, policy: &PolicyRule) -> bool {
+    let spec = &policy.spec;
 
-    let lp = ListParams::default();
-    let examples = api.list(&lp).await?;
+    // Check namespace
+    if let Some(ns_selector) = &spec.target.namespace_selector {
+        let pod_ns = pod.namespace().unwrap_or_default();
+        if !ns_selector.match_names.is_empty() {
+            if !ns_selector.match_names.contains(&pod_ns) {
+                return false;
+            }
+        }
+    }
 
-    for example in examples.items {
-        info!(name = %example.name_any(), "Processing Example resource");
-        debug!("Spec: {:?}", example.spec);
+    // Check pod labels
+    if let Some(pod_selector) = &spec.target.pod_selector {
+        if !pod_selector.match_labels.is_empty() {
+            let pod_labels = pod.labels();
+            for (key, value) in &pod_selector.match_labels {
+                if pod_labels.get(key.as_str()) != Some(&value.to_string()) {
+                    return false;
+                }
+            }
+        }
+    }
 
-        // TODO: Implement reconciliation logic
+    true
+}
+
+/// Checks if pod has the required annotation
+pub fn check_trigger(pod: &Pod, annotation_key: &str, annotation_values: &[String]) -> bool {
+    if let Some(annotations) = &pod.metadata.annotations {
+        if let Some(value) = annotations.get(annotation_key) {
+            return annotation_values.contains(value);
+        }
+    }
+    false
+}
+
+/// Evaluates TTL condition (Builtin type)
+pub fn evaluate_ttl_condition(pod: &Pod, ttl_seconds: i64) -> bool {
+    if let Some(creation_timestamp) = &pod.metadata.creation_timestamp {
+        let created = creation_timestamp.0;
+        let now = chrono::Utc::now();
+
+        let age = (now - created).num_seconds();
+        age > ttl_seconds
+    } else {
+        false
+    }
+}
+
+/// Check if namespace should be protected
+pub fn is_system_namespace(ns: &str) -> bool {
+    matches!(
+        ns,
+        "kube-system"
+            | "kube-public"
+            | "kube-node-lease"
+            | "kube-apiserver"
+            | "kube-controller-manager"
+            | "kube-scheduler"
+    )
+}
+
+/// Main reconciliation logic for a pod
+pub async fn reconcile_pod_with_evaluator(
+    pod: Pod,
+    policies: &[PolicyRule],
+    client: &Client,
+    evaluator: Arc<Mutex<CelEvaluator>>,
+) -> Result<()> {
+    let pod_name = pod.name_any();
+    let pod_ns = pod.namespace().unwrap_or_default();
+
+    debug!("Reconciling pod {}/{}", pod_ns, pod_name);
+
+    let mut deleted = false;
+
+    for policy in policies {
+        if !policy.spec.validate().is_ok() {
+            warn!(
+                "Invalid policy {}: {:?}",
+                policy.name_any(),
+                policy.spec.validate()
+            );
+            continue;
+        }
+
+        if !matches_policy(&pod, policy) {
+            debug!(
+                "Pod {}/{} does not match policy {}",
+                pod_ns,
+                pod_name,
+                policy.name_any()
+            );
+            continue;
+        }
+
+        if !check_trigger(
+            &pod,
+            &policy.spec.trigger.annotation_key,
+            &policy.spec.trigger.annotation_values,
+        ) {
+            debug!(
+                "Pod {}/{} does not have trigger annotation for policy {}",
+                pod_ns,
+                pod_name,
+                policy.name_any()
+            );
+            continue;
+        }
+
+        // Evaluate condition
+        let condition_met = match policy.spec.condition.condition_type.as_str() {
+            "Builtin" => {
+                if let Some(ttl_seconds) = policy.spec.condition.ttl_seconds {
+                    evaluate_ttl_condition(&pod, ttl_seconds)
+                } else {
+                    false
+                }
+            }
+            "CEL" => {
+                if let Some(expr) = &policy.spec.condition.expression {
+                    match evaluator.lock() {
+                        Ok(mut eval) => match eval.evaluate(expr, &pod) {
+                            Ok(result) => {
+                                debug!(
+                                    "CEL evaluation for pod {}/{}: {} = {}",
+                                    pod_ns, pod_name, expr, result
+                                );
+                                result
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to evaluate CEL expression for pod {}/{}: {}",
+                                    pod_ns, pod_name, e
+                                );
+                                false
+                            }
+                        },
+                        Err(e) => {
+                            warn!("Failed to acquire evaluator lock: {}", e);
+                            false
+                        }
+                    }
+                } else {
+                    warn!("CEL condition missing expression for policy {}", policy.name_any());
+                    false
+                }
+            }
+            _ => {
+                warn!(
+                    "Unknown condition type: {}",
+                    policy.spec.condition.condition_type
+                );
+                false
+            }
+        };
+
+        if !condition_met {
+            debug!(
+                "Condition not met for pod {}/{} under policy {}",
+                pod_ns,
+                pod_name,
+                policy.name_any()
+            );
+            continue;
+        }
+
+        // Check safety limits
+        if policy.spec.limits.protect_system_namespaces && is_system_namespace(&pod_ns) {
+            info!(
+                "Skipping deletion of pod {}/{} in protected namespace with policy {}",
+                pod_ns,
+                pod_name,
+                policy.name_any()
+            );
+            continue;
+        }
+
+        // Execute action
+        match policy.spec.action.action_type.as_str() {
+            "Delete" => {
+                if policy.spec.action.dry_run {
+                    info!(
+                        "DRY RUN: Would delete pod {}/{} (policy: {})",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+                } else {
+                    info!(
+                        "Deleting pod {}/{} (policy: {})",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+
+                    let api: Api<Pod> = Api::namespaced(client.clone(), &pod_ns);
+                    let dp = DeleteParams {
+                        grace_period_seconds: policy
+                            .spec
+                            .action
+                            .grace_period_seconds
+                            .map(|g| g as u32),
+                        ..Default::default()
+                    };
+
+                    match api.delete(&pod_name, &dp).await {
+                        Ok(_) => {
+                            info!("Successfully deleted pod {}/{}", pod_ns, pod_name);
+                            deleted = true;
+                        }
+                        Err(e) => {
+                            warn!("Failed to delete pod {}/{}: {}", pod_ns, pod_name, e);
+                        }
+                    }
+                }
+            }
+            "Evict" => {
+                // TODO: Implement Evict in Phase 3
+                info!(
+                    "Evict action not yet supported for pod {}/{}",
+                    pod_ns, pod_name
+                );
+            }
+            _ => {
+                warn!("Unknown action type: {}", policy.spec.action.action_type);
+            }
+        }
+
+        if deleted {
+            break; // Stop processing further policies after successful deletion
+        }
     }
 
     Ok(())
+}
+
+/// Wrapper for backward compatibility (without CEL evaluator)
+pub async fn reconcile_pod(pod: Pod, policies: &[PolicyRule], client: &Client) -> Result<()> {
+    let evaluator = Arc::new(Mutex::new(CelEvaluator::new()));
+    reconcile_pod_with_evaluator(pod, policies, client, evaluator).await
+}
+
+/// Load all policy rules
+pub async fn load_policies(client: &Client) -> Result<Vec<PolicyRule>> {
+    let api: Api<PolicyRule> = Api::all(client.clone());
+    let lp = ListParams::default();
+
+    let policies = api.list(&lp).await?;
+    info!(count = policies.items.len(), "Loaded policies");
+
+    Ok(policies.items)
 }

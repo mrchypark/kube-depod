@@ -1,0 +1,111 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: policyrules.kube-depod.io
+spec:
+  group: kube-depod.io
+  names:
+    kind: PolicyRule
+    plural: policyrules
+    shortNames:
+      - pr
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - target
+                - trigger
+                - condition
+                - action
+                - limits
+              properties:
+                target:
+                  type: object
+                  properties:
+                    namespaceSelector:
+                      type: object
+                      properties:
+                        matchNames:
+                          type: array
+                          items:
+                            type: string
+                    podSelector:
+                      type: object
+                      properties:
+                        matchLabels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                trigger:
+                  type: object
+                  required:
+                    - annotationKey
+                    - annotationValues
+                  properties:
+                    annotationKey:
+                      type: string
+                      description: Annotation key to look for
+                    annotationValues:
+                      type: array
+                      items:
+                        type: string
+                      description: Accepted annotation values
+                condition:
+                  type: object
+                  required:
+                    - type
+                  properties:
+                    type:
+                      type: string
+                      enum: ["Builtin", "CEL"]
+                      description: Condition type
+                    expression:
+                      type: string
+                      description: CEL expression (required for CEL type)
+                    ttlSeconds:
+                      type: integer
+                      description: TTL in seconds (required for Builtin type)
+                action:
+                  type: object
+                  required:
+                    - type
+                  properties:
+                    type:
+                      type: string
+                      enum: ["Delete", "Evict"]
+                      description: Action type
+                    gracePeriodSeconds:
+                      type: integer
+                      description: Grace period for deletion
+                    dryRun:
+                      type: boolean
+                      default: false
+                      description: Dry-run mode (no actual deletion)
+                limits:
+                  type: object
+                  properties:
+                    maxDeletesPerMinute:
+                      type: integer
+                      description: Max pods to delete per minute
+                    protectSystemNamespaces:
+                      type: boolean
+                      default: true
+                      description: Protect system namespaces
+      additionalPrinterColumns:
+        - jsonPath: .spec.condition.type
+          name: Condition Type
+          type: string
+        - jsonPath: .spec.action.type
+          name: Action
+          type: string
+        - jsonPath: .spec.action.dryRun
+          name: Dry Run
+          type: boolean
