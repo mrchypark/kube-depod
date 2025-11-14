@@ -49,13 +49,33 @@ Kubernetes API Server
 cargo build --release
 ```
 
+## Installation
+
+### Using Helm (Recommended)
+
+```bash
+# Add the Helm repository
+helm repo add kube-depod https://mrchypark.github.io/kube-depot
+helm repo update
+
+# Install in kube-system namespace
+helm install kube-depod kube-depod/kube-depod -n kube-system --create-namespace
+```
+
+For more Helm options, see [Helm Chart Documentation](helm/README.md)
+
 ## Running
 
 ### In-cluster
 
 ```bash
-kubectl apply -f examples/ttl-policy.yaml
-cargo run --bin operator
+# Using kubectl
+kubectl apply -f manifests/crd.yaml
+kubectl apply -f manifests/rbac.yaml
+kubectl apply -f manifests/deployment.yaml
+
+# Or using Helm
+helm install kube-depod ./helm/kube-depod -n kube-system --create-namespace
 ```
 
 ### Local Development
