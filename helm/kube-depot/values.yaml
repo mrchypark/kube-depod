@@ -1,0 +1,86 @@
+# Default values for kube-depot
+# This is a YAML-formatted file.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/mrchypark/kube-depot
+  pullPolicy: IfNotPresent
+  tag: "" # Overrides the image tag; defaults to Chart.appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+rbac:
+  # Specifies whether RBAC resources should be created
+  create: true
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Environment variables
+env:
+  RUST_LOG: "info"
+
+# Operator configuration
+operator:
+  # Rate limit: max deletes per minute
+  rateLimit: 20
+  # Protect system namespaces
+  protectSystemNamespaces: true
+  # Metrics server port
+  metricsPort: 8080
+
+# CRD installation
+crds:
+  # Whether to install CRDs
+  install: true
+
+# Namespace configuration
+namespace:
+  # Whether to create the namespace
+  create: true
+  # Name of the namespace
+  name: kube-system

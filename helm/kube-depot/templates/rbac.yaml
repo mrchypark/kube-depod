@@ -1,0 +1,54 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kube-depot.fullname" . }}
+  labels:
+    {{- include "kube-depot.labels" . | nindent 4 }}
+rules:
+  # Read Policy CRD
+  - apiGroups: ["kube-depod.io"]
+    resources: ["policies"]
+    verbs: ["get", "list", "watch"]
+
+  # Read Pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+  # Delete Pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete", "deletecollection"]
+
+  # Create pod eviction subresource (for future use)
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+
+  # Read pod logs for debugging
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  # Read events for status updates
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kube-depot.fullname" . }}
+  labels:
+    {{- include "kube-depot.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kube-depot.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kube-depot.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- end }}

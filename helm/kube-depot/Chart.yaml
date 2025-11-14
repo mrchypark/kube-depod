@@ -1,0 +1,17 @@
+apiVersion: v2
+name: kube-depot
+description: Kubernetes operator for automated Pod cleanup based on annotation-driven policies
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - operator
+  - pod-cleanup
+  - automation
+home: https://github.com/mrchypark/kube-depot
+sources:
+  - https://github.com/mrchypark/kube-depot
+maintainers:
+  - name: Park Chan Young
+    email: mrchypark@gmail.com
