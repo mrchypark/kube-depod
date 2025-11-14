@@ -25,13 +25,13 @@ jobs:
 
       - name: Package chart
         run: |
-          mkdir -p ./charts
-          helm package ./helm/kube-depod -d ./charts
-          helm repo index ./charts --url https://mrchypark.github.io/kube-depod
+          mkdir -p ./docs
+          helm package ./helm/kube-depod -d ./docs
+          helm repo index ./docs --url https://mrchypark.github.io/kube-depod
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./charts
+          publish_dir: ./docs
           force_orphan: true
