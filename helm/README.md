@@ -21,19 +21,19 @@ helm repo update
 
 ```bash
 # Install with default values
-helm install kube-depod ./helm/kube-depod
+helm install kube-depod kube-depod/kube-depod
 
-# Install in a specific namespace
-helm install kube-depod ./helm/kube-depod -n kube-system --create-namespace
+# Install in kube-depod namespace
+helm install kube-depod kube-depod/kube-depod -n kube-depod --create-namespace
 
 # Install with custom values
-helm install kube-depod ./helm/kube-depod -f values.yaml
+helm install kube-depod kube-depod/kube-depod -f values.yaml
 ```
 
 ### Upgrade the Chart
 
 ```bash
-helm upgrade kube-depod ./helm/kube-depod
+helm upgrade kube-depod kube-depod/kube-depod
 ```
 
 ### Uninstall the Chart
@@ -56,7 +56,7 @@ kubectl delete crd policies.kube-depod.io
 | `image.tag` | Docker image tag | Chart AppVersion |
 | `image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `namespace.create` | Create namespace | `true` |
-| `namespace.name` | Namespace name | `kube-system` |
+| `namespace.name` | Namespace name | `kube-depod` |
 
 ### Service Account
 
@@ -139,16 +139,16 @@ helm install kube-depod kube-depod/kube-depod \
 
 ```bash
 # Check deployment
-kubectl get deployment -n kube-system kube-depod
+kubectl get deployment -n kube-depod kube-depod
 
 # Check Pod
-kubectl get pod -n kube-system -l app.kubernetes.io/name=kube-depod
+kubectl get pod -n kube-depod -l app.kubernetes.io/name=kube-depod
 
 # Check CRD
 kubectl get crd policies.kube-depod.io
 
 # Check metrics
-kubectl port-forward -n kube-system svc/kube-depod-metrics 8080:8080
+kubectl port-forward -n kube-depod svc/kube-depod-metrics 8080:8080
 curl http://localhost:8080/metrics
 
 # Check health
@@ -194,13 +194,13 @@ spec:
 ### Check Logs
 
 ```bash
-kubectl logs -n kube-system -l app.kubernetes.io/name=kube-depod -f
+kubectl logs -n kube-depod -l app.kubernetes.io/name=kube-depod -f
 ```
 
 ### Debug Mode
 
 ```bash
-helm install kube-depod kube-depod/kube-depod \
+helm install kube-depod kube-depod/kube-depod -n kube-depod --create-namespace \
   --set env.RUST_LOG=debug
 ```
 
