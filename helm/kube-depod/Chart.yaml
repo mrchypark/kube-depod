@@ -13,7 +13,7 @@ home: https://github.com/mrchypark/kube-depod
 sources:
   - https://github.com/mrchypark/kube-depod
 maintainers:
-  - name: Park Chan Young
+  - name: Park Chanyub
     email: mrchypark@gmail.com
 annotations:
   # Indicate that this chart installs CRDs
