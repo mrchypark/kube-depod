@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
+  publish:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -20,48 +20,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Helm
-        uses: azure/setup-helm@v3
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Package chart
+        run: |
+          mkdir -p ./charts
+          helm package ./helm/kube-depod -d ./charts
+          helm repo index ./charts --url https://mrchypark.github.io/kube-depod
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          version: latest
-
-      - name: Add Helm repos
-        run: |
-          helm repo add stable https://charts.helm.sh/stable
-
-      - name: Package Helm chart
-        run: |
-          mkdir -p ./helm/releases
-          helm package ./helm/kube-depod -d ./helm/releases
-
-      - name: Update Helm index
-        run: |
-          if [ -d "gh-pages" ]; then
-            helm repo index ./helm/releases --merge gh-pages/index.yaml --url https://mrchypark.github.io/kube-depod
-          else
-            helm repo index ./helm/releases --url https://mrchypark.github.io/kube-depod
-          fi
-
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
-        continue-on-error: true
-        with:
-          ref: gh-pages
-          path: gh-pages
-          fetch-depth: 0
-
-      - name: Copy packaged chart
-        run: |
-          cp ./helm/releases/*.tgz gh-pages/ || true
-          cp ./helm/releases/index.yaml gh-pages/index.yaml
-
-      - name: Commit and push to gh-pages
-        working-directory: ./gh-pages
-        run: |
-          git add .
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update Helm chart - $(date +'%Y-%m-%d %H:%M:%S')"
-            git push origin gh-pages
-          fi
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./charts
+          force_orphan: true
