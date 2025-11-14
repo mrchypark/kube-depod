@@ -5,8 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'helm/**'
-      - '.github/workflows/helm-release.yml'
+      - "helm/**"
+      - ".github/workflows/helm-release.yml"
   workflow_dispatch:
 
 jobs:
@@ -49,9 +49,11 @@ jobs:
 
       - name: Checkout gh-pages branch
         uses: actions/checkout@v4
+        continue-on-error: true
         with:
           ref: gh-pages
           path: gh-pages
+          fetch-depth: 0
 
       - name: Copy packaged chart
         run: |
