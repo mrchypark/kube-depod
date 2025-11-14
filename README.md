@@ -4,7 +4,7 @@ Kubernetes operator for automated Pod cleanup based on annotation-driven policie
 
 ## Overview
 
-kube-depod is a Rust-based Kubernetes operator that automatically deletes Pods based on configurable `PolicyRule` CRDs. It supports:
+kube-depod is a Rust-based Kubernetes operator that automatically deletes Pods based on configurable `Policy` CRDs. It supports:
 
 - **Annotation-driven triggers**: Policies activate when Pods have specific annotations
 - **Flexible conditions**: TTL-based (Builtin) or CEL expression-based conditions
@@ -14,11 +14,11 @@ kube-depod is a Rust-based Kubernetes operator that automatically deletes Pods b
 ## Architecture
 
 ```
-PolicyRule CRD
+Policy CRD
       ↓
 kube-depod Operator
   - Watch Pods
-  - Load & cache PolicyRules
+  - Load & cache Policies
   - Match Pods against Policies
   - Evaluate Conditions
   - Execute Actions (Delete/Evict)
@@ -29,7 +29,7 @@ Kubernetes API Server
 ## Phase 1-2: MVP + CEL Features (Current)
 
 ✅ **Completed:**
-- PolicyRule CRD definition with validation
+- Policy CRD definition with validation
 - Pod watching and reconciliation loop
 - Annotation-based policy triggers
 - Builtin TTL condition evaluation
@@ -109,7 +109,7 @@ The operator includes token bucket rate limiting to prevent overwhelming the Kub
 - Configurable via environment or code
 - Gracefully handles rate limit exceeding by skipping deletion but continuing to process other pods
 
-## Example PolicyRules
+## Example Policies
 
 ### Builtin TTL Policy
 See `examples/ttl-policy.yaml`:
@@ -154,7 +154,7 @@ For CEL expression documentation, see `docs/CEL_EXPRESSIONS.md`
 src/
 ├── main.rs              # Entrypoint, Pod watcher, metrics collection
 ├── lib.rs               # Library root
-├── crd.rs               # PolicyRule CRD definition
+├── crd.rs               # Policy CRD definition
 ├── controller.rs        # Reconciliation logic
 ├── error.rs             # Error types
 ├── metrics.rs           # Prometheus metrics collection
@@ -164,7 +164,7 @@ src/
     ├── mod.rs           # Engine module
     └── cel.rs           # CEL expression evaluator
 examples/
-├── ttl-policy.yaml      # Example PolicyRule and Pod
+├── ttl-policy.yaml      # Example Policy and Pod
 ```
 
 ## Development

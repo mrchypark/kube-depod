@@ -3,15 +3,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// PolicyRule CRD for automated Pod cleanup
+/// Policy CRD for automated Pod cleanup
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[kube(
     group = "kube-depod.io",
     version = "v1alpha1",
-    kind = "PolicyRule",
+    kind = "Policy",
     namespaced
 )]
-pub struct PolicyRuleSpec {
+pub struct PolicySpec {
     /// Target namespace and pod selectors
     pub target: Target,
 
@@ -108,7 +108,7 @@ pub struct Limits {
     pub protect_system_namespaces: bool,
 }
 
-impl PolicyRuleSpec {
+impl PolicySpec {
     /// Validate the spec
     pub fn validate(&self) -> Result<(), String> {
         if self.trigger.annotation_key.is_empty() {

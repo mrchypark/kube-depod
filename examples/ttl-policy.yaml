@@ -1,5 +1,5 @@
 apiVersion: kube-depod.io/v1alpha1
-kind: PolicyRule
+kind: Policy
 metadata:
   name: ttl-10m-policy
   namespace: default

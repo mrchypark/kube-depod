@@ -1,5 +1,5 @@
 apiVersion: kube-depod.io/v1alpha1
-kind: PolicyRule
+kind: Policy
 metadata:
   name: failed-pod-policy
   namespace: default
@@ -29,7 +29,7 @@ spec:
     protectSystemNamespaces: true
 ---
 apiVersion: kube-depod.io/v1alpha1
-kind: PolicyRule
+kind: Policy
 metadata:
   name: old-pod-policy
   namespace: default

@@ -14,4 +14,4 @@ commonLabels:
   app.kubernetes.io/part-of: kube-depod
 
 commonAnnotations:
-  description: "Automated Pod cleanup operator based on PolicyRule CRD"
+  description: "Automated Pod cleanup operator based on Policy CRD"
