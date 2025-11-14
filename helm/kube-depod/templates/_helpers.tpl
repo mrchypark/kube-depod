@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "kube-depot.name" -}}
+{{- define "kube-depod.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "kube-depot.fullname" -}}
+{{- define "kube-depod.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "kube-depot.chart" -}}
+{{- define "kube-depod.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "kube-depot.labels" -}}
-helm.sh/chart: {{ include "kube-depot.chart" . }}
-{{ include "kube-depot.selectorLabels" . }}
+{{- define "kube-depod.labels" -}}
+helm.sh/chart: {{ include "kube-depod.chart" . }}
+{{ include "kube-depod.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,17 +43,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "kube-depot.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "kube-depot.name" . }}
+{{- define "kube-depod.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "kube-depod.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "kube-depot.serviceAccountName" -}}
+{{- define "kube-depod.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "kube-depot.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "kube-depod.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

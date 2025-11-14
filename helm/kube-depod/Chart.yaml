@@ -1,5 +1,5 @@
 apiVersion: v2
-name: kube-depot
+name: kube-depod
 description: Kubernetes operator for automated Pod cleanup based on annotation-driven policies
 type: application
 version: 0.1.0
@@ -9,9 +9,12 @@ keywords:
   - operator
   - pod-cleanup
   - automation
-home: https://github.com/mrchypark/kube-depot
+home: https://github.com/mrchypark/kube-depod
 sources:
-  - https://github.com/mrchypark/kube-depot
+  - https://github.com/mrchypark/kube-depod
 maintainers:
   - name: Park Chan Young
     email: mrchypark@gmail.com
+annotations:
+  # Indicate that this chart installs CRDs
+  meta.helm.sh/kubeVersion: ">=1.20.0"

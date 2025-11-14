@@ -1,10 +1,10 @@
-# Default values for kube-depot
+# Default values for kube-depod
 # This is a YAML-formatted file.
 
 replicaCount: 1
 
 image:
-  repository: ghcr.io/mrchypark/kube-depot
+  repository: ghcr.io/mrchypark/kube-depod
   pullPolicy: IfNotPresent
   tag: "" # Overrides the image tag; defaults to Chart.appVersion
 
@@ -73,10 +73,10 @@ operator:
   # Metrics server port
   metricsPort: 8080
 
-# CRD installation
+# CRD installation (Helm will auto-install CRDs from crds/ directory)
 crds:
-  # Whether to install CRDs
-  install: true
+  # Whether to install CRDs (automatic via crds/ directory)
+  enabled: true
 
 # Namespace configuration
 namespace:

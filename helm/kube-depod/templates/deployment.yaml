@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "kube-depot.fullname" . }}
+  name: {{ include "kube-depod.fullname" . }}
   labels:
-    {{- include "kube-depot.labels" . | nindent 4 }}
+    {{- include "kube-depod.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "kube-depot.selectorLabels" . | nindent 6 }}
+      {{- include "kube-depod.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -18,13 +18,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "kube-depot.selectorLabels" . | nindent 8 }}
+        {{- include "kube-depod.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "kube-depot.serviceAccountName" . }}
+      serviceAccountName: {{ include "kube-depod.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:

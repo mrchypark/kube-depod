@@ -1,0 +1,25 @@
+# Patterns to ignore when building packages.
+# This supports shell glob patterns, relative path patterns, and negated
+# patterns.  Only one pattern per line.
+.DS_Store
+# Common VCS dirs
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+# Common backup files
+*.swp
+*.swo
+*~
+*.swn
+.#*
+
+# Helm-specific Ingnore patterns
+Chart.lock
+tox.ini
+.idea/
+*.orig
+.vscode/

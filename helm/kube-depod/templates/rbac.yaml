@@ -2,9 +2,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kube-depot.fullname" . }}
+  name: {{ include "kube-depod.fullname" . }}
   labels:
-    {{- include "kube-depot.labels" . | nindent 4 }}
+    {{- include "kube-depod.labels" . | nindent 4 }}
 rules:
   # Read Policy CRD
   - apiGroups: ["kube-depod.io"]
@@ -40,15 +40,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "kube-depot.fullname" . }}
+  name: {{ include "kube-depod.fullname" . }}
   labels:
-    {{- include "kube-depot.labels" . | nindent 4 }}
+    {{- include "kube-depod.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "kube-depot.fullname" . }}
+  name: {{ include "kube-depod.fullname" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "kube-depot.serviceAccountName" . }}
+    name: {{ include "kube-depod.serviceAccountName" . }}
     namespace: {{ .Release.Namespace | quote }}
 {{- end }}

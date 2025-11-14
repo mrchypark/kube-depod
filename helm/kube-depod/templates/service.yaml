@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "kube-depot.fullname" . }}-metrics
+  name: {{ include "kube-depod.fullname" . }}-metrics
   labels:
-    {{- include "kube-depot.labels" . | nindent 4 }}
+    {{- include "kube-depod.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -12,4 +12,4 @@ spec:
       protocol: TCP
       name: metrics
   selector:
-    {{- include "kube-depot.selectorLabels" . | nindent 4 }}
+    {{- include "kube-depod.selectorLabels" . | nindent 4 }}
