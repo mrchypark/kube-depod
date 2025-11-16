@@ -8,6 +8,24 @@ pub mod server;
 
 pub use error::{Error, Result};
 
+// Shared context for the operator
+use crd::DepodPolicy;
+use engine::CelEvaluator;
+use kube::Client;
+use metrics::Metrics;
+use rate_limiter::RateLimiter;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+#[derive(Clone)]
+pub struct Context {
+    pub client: Client,
+    pub metrics: Arc<Metrics>,
+    pub evaluator: Arc<CelEvaluator>,
+    pub policies: Arc<RwLock<Vec<DepodPolicy>>>,
+    pub rate_limiter: Arc<RateLimiter>,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::crd::{DepodPolicySpec, Limits, Match, Then, Trigger, When};

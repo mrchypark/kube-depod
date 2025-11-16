@@ -1,13 +1,15 @@
 use crate::crd::DepodPolicy;
 use crate::engine::CelEvaluator;
 use crate::rate_limiter::RateLimiter;
-use crate::Result;
+use crate::{Context, Result};
 use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::api::policy::v1::Eviction;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{DeleteOptions, ObjectMeta};
 use kube::api::{Api, DeleteParams, ListParams, PostParams};
+use kube::runtime::controller::Action;
 use kube::{Client, ResourceExt};
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, info, warn};
 
 /// Result of pod reconciliation
@@ -413,4 +415,320 @@ pub async fn load_policies(client: &Client) -> Result<Vec<DepodPolicy>> {
     info!(count = policies.items.len(), "Loaded policies");
 
     Ok(policies.items)
+}
+
+/// New reconcile function for kube-rs Controller framework
+pub async fn reconcile(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
+    let pod_name = pod.name_any();
+    let pod_ns = pod.namespace().unwrap_or_default();
+
+    debug!("Reconciling pod {}/{}", pod_ns, pod_name);
+
+    ctx.metrics.increment_pods_evaluated();
+
+    let policies = ctx.policies.read().await;
+    let mut ttl_requeue_seconds: Option<u64> = None;
+
+    for policy in policies.iter() {
+        if policy.spec.validate().is_err() {
+            warn!(
+                "Invalid policy {}: {:?}",
+                policy.name_any(),
+                policy.spec.validate()
+            );
+            ctx.metrics.increment_evaluation_errors();
+            continue;
+        }
+
+        if !matches_policy(&pod, policy) {
+            debug!(
+                "Pod {}/{} does not match policy {}",
+                pod_ns,
+                pod_name,
+                policy.name_any()
+            );
+            continue;
+        }
+
+        if !check_trigger(
+            &pod,
+            &policy.spec.trigger.annotation_key,
+            &policy.spec.trigger.annotation_values,
+        ) {
+            debug!(
+                "Pod {}/{} does not have trigger annotation for policy {}",
+                pod_ns,
+                pod_name,
+                policy.name_any()
+            );
+            continue;
+        }
+
+        ctx.metrics.increment_policy_matches();
+
+        // Evaluate when condition
+        let condition_met = match policy.spec.when.condition_type.as_str() {
+            "Builtin" => {
+                if let Some(ttl_seconds) = policy.spec.when.ttl_seconds {
+                    if evaluate_ttl_condition(&pod, ttl_seconds) {
+                        debug!("Pod {}/{} meets TTL condition", pod_ns, pod_name);
+                        true
+                    } else {
+                        // Calculate time until TTL expires
+                        if let Some(creation_timestamp) = &pod.metadata.creation_timestamp {
+                            let created = creation_timestamp.0;
+                            let now = chrono::Utc::now();
+                            let age = (now - created).num_seconds();
+                            let ttl_left = (ttl_seconds - age).max(1) as u64;
+
+                            info!(
+                                "Pod {}/{} does not meet TTL ({}/{}s), requeueing in {}s",
+                                pod_ns, pod_name, age, ttl_seconds, ttl_left
+                            );
+
+                            // Store the requeue time (use the minimum if multiple policies)
+                            if let Some(current) = ttl_requeue_seconds {
+                                ttl_requeue_seconds = Some(current.min(ttl_left));
+                            } else {
+                                ttl_requeue_seconds = Some(ttl_left);
+                            }
+                        }
+                        false
+                    }
+                } else {
+                    warn!("Builtin policy {} missing ttlSeconds", policy.name_any());
+                    ctx.metrics.increment_evaluation_errors();
+                    false
+                }
+            }
+            "CEL" => {
+                if let Some(expr) = &policy.spec.when.expression {
+                    match ctx.evaluator.evaluate(expr, &pod) {
+                        Ok(condition_result) => {
+                            debug!(
+                                "CEL evaluation for pod {}/{}: {} = {}",
+                                pod_ns, pod_name, expr, condition_result
+                            );
+                            condition_result
+                        }
+                        Err(crate::Error::CelCompilationError(e)) => {
+                            warn!(
+                                "CEL compilation failed for policy {}: {}",
+                                policy.name_any(), e
+                            );
+                            ctx.metrics.increment_evaluation_errors();
+                            false
+                        }
+                        Err(crate::Error::CelEvaluationError(e)) => {
+                            warn!(
+                                "CEL evaluation failed for pod {}/{} (policy {}): {}",
+                                pod_ns, pod_name, policy.name_any(), e
+                            );
+                            ctx.metrics.increment_evaluation_errors();
+                            false
+                        }
+                        Err(e) => {
+                            warn!(
+                                "CEL error for pod {}/{} (policy {}): {}",
+                                pod_ns, pod_name, policy.name_any(), e
+                            );
+                            ctx.metrics.increment_evaluation_errors();
+                            false
+                        }
+                    }
+                } else {
+                    warn!(
+                        "CEL condition missing expression for policy {}",
+                        policy.name_any()
+                    );
+                    ctx.metrics.increment_evaluation_errors();
+                    false
+                }
+            }
+            _ => {
+                warn!(
+                    "Unknown condition type: {}",
+                    policy.spec.when.condition_type
+                );
+                ctx.metrics.increment_evaluation_errors();
+                false
+            }
+        };
+
+        if !condition_met {
+            debug!(
+                "Condition not met for pod {}/{} under policy {}",
+                pod_ns,
+                pod_name,
+                policy.name_any()
+            );
+            continue;
+        }
+
+        // Check safety limits (system namespaces + excluded namespaces)
+        if is_namespace_protected(
+            &pod_ns,
+            policy.spec.limits.protect_system_namespaces,
+            &policy.spec.limits.excluded_namespaces,
+        ) {
+            let protection_reason = if policy.spec.limits.protect_system_namespaces
+                && is_system_namespace(&pod_ns)
+            {
+                "system namespace"
+            } else {
+                "excluded namespace"
+            };
+
+            info!(
+                "Skipping deletion of pod {}/{} ({}), policy: {}",
+                pod_ns, pod_name, protection_reason, policy.name_any()
+            );
+            continue;
+        }
+
+        // Execute then action
+        match policy.spec.then.action_type.as_str() {
+            "Delete" => {
+                if policy.spec.then.dry_run {
+                    info!(
+                        "DRY RUN: Would delete pod {}/{} (policy: {})",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+                } else {
+                    // Check rate limit if enabled
+                    if !ctx.rate_limiter.allow() {
+                        info!(
+                            "Rate limit exceeded for pod {}/{} (policy: {})",
+                            pod_ns,
+                            pod_name,
+                            policy.name_any()
+                        );
+                        ctx.metrics.increment_rate_limited();
+                        // Requeue after 10 seconds to avoid hammering the API
+                        return Ok(Action::requeue(Duration::from_secs(10)));
+                    }
+
+                    info!(
+                        "Deleting pod {}/{} (policy: {})",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+
+                    let api: Api<Pod> = Api::namespaced(ctx.client.clone(), &pod_ns);
+                    let dp = DeleteParams {
+                        grace_period_seconds: policy
+                            .spec
+                            .then
+                            .grace_period_seconds
+                            .map(|g| g as u32),
+                        ..Default::default()
+                    };
+
+                    match api.delete(&pod_name, &dp).await {
+                        Ok(_) => {
+                            info!("Successfully deleted pod {}/{}", pod_ns, pod_name);
+                            ctx.metrics.increment_pods_deleted();
+                            return Ok(Action::await_change());
+                        }
+                        Err(e) => {
+                            warn!("Failed to delete pod {}/{}: {}", pod_ns, pod_name, e);
+                            ctx.metrics.increment_evaluation_errors();
+                        }
+                    }
+                }
+            }
+            "Evict" => {
+                if policy.spec.then.dry_run {
+                    info!(
+                        "DRY RUN: Would evict pod {}/{} (policy: {})",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+                } else {
+                    // Check rate limit if enabled
+                    if !ctx.rate_limiter.allow() {
+                        info!(
+                            "Rate limit exceeded for pod {}/{} (policy: {})",
+                            pod_ns,
+                            pod_name,
+                            policy.name_any()
+                        );
+                        ctx.metrics.increment_rate_limited();
+                        // Requeue after 10 seconds to avoid hammering the API
+                        return Ok(Action::requeue(Duration::from_secs(10)));
+                    }
+
+                    info!(
+                        "Evicting pod {}/{} (policy: {}) - respects Pod Disruption Budgets",
+                        pod_ns,
+                        pod_name,
+                        policy.name_any()
+                    );
+
+                    // Create eviction request respecting Pod Disruption Budgets
+                    let eviction = Eviction {
+                        metadata: ObjectMeta {
+                            name: Some(pod_name.clone()),
+                            namespace: Some(pod_ns.clone()),
+                            ..Default::default()
+                        },
+                        delete_options: Some(DeleteOptions {
+                            grace_period_seconds: policy.spec.then.grace_period_seconds,
+                            ..Default::default()
+                        }),
+                    };
+
+                    // Create the eviction request using Policy API v1
+                    // This respects Pod Disruption Budgets (PDBs) unlike direct deletion
+                    let api: Api<Eviction> = Api::all(ctx.client.clone());
+
+                    match api.create(&PostParams::default(), &eviction).await {
+                        Ok(_) => {
+                            info!(
+                                "Successfully evicted pod {}/{} (respects PDB)",
+                                pod_ns, pod_name
+                            );
+                            ctx.metrics.increment_pods_deleted();
+                            return Ok(Action::await_change());
+                        }
+                        Err(e) => {
+                            // If eviction fails (e.g., due to PDB), log as warning
+                            warn!(
+                                "Failed to evict pod {}/{} (respects PDB): {}",
+                                pod_ns, pod_name, e
+                            );
+                            ctx.metrics.increment_evaluation_errors();
+                        }
+                    }
+                }
+            }
+            _ => {
+                warn!("Unknown action type: {}", policy.spec.then.action_type);
+                ctx.metrics.increment_evaluation_errors();
+            }
+        }
+    }
+
+    // Determine what action to return
+    if let Some(ttl_seconds) = ttl_requeue_seconds {
+        debug!(
+            "Pod {}/{} will be re-evaluated in {}s when TTL expires",
+            pod_ns, pod_name, ttl_seconds
+        );
+        Ok(Action::requeue(Duration::from_secs(ttl_seconds)))
+    } else {
+        debug!("Pod {}/{} reconciled, waiting for changes", pod_ns, pod_name);
+        Ok(Action::await_change())
+    }
+}
+
+/// Error policy for reconciliation failures
+pub fn error_policy(pod: Arc<Pod>, error: &crate::Error, _ctx: Arc<Context>) -> Action {
+    warn!("Reconciliation error for pod {}: {}", pod.name_any(), error);
+    // Note: cannot await metrics increment here since this is a sync function
+    Action::requeue(Duration::from_secs(60))
 }
