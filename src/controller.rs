@@ -7,7 +7,7 @@ use k8s_openapi::api::policy::v1::Eviction;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{DeleteOptions, ObjectMeta};
 use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube::{Client, ResourceExt};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 /// Result of pod reconciliation
@@ -108,7 +108,7 @@ pub async fn reconcile_pod_with_evaluator(
     pod: Pod,
     policies: &[DepodPolicy],
     client: &Client,
-    evaluator: Arc<Mutex<CelEvaluator>>,
+    evaluator: Arc<CelEvaluator>,
     rate_limiter: Option<Arc<RateLimiter>>,
 ) -> Result<ReconcileResult> {
     let pod_name = pod.name_any();
@@ -166,42 +166,35 @@ pub async fn reconcile_pod_with_evaluator(
             }
             "CEL" => {
                 if let Some(expr) = &policy.spec.when.expression {
-                    match evaluator.lock() {
-                        Ok(mut eval) => match eval.evaluate(expr, &pod) {
-                            Ok(condition_result) => {
-                                debug!(
-                                    "CEL evaluation for pod {}/{}: {} = {}",
-                                    pod_ns, pod_name, expr, condition_result
-                                );
-                                condition_result
-                            }
-                            Err(crate::Error::CelCompilationError(e)) => {
-                                warn!(
-                                    "CEL compilation failed for policy {}: {}",
-                                    policy.name_any(), e
-                                );
-                                result.errors += 1;
-                                false
-                            }
-                            Err(crate::Error::CelEvaluationError(e)) => {
-                                warn!(
-                                    "CEL evaluation failed for pod {}/{} (policy {}): {}",
-                                    pod_ns, pod_name, policy.name_any(), e
-                                );
-                                result.errors += 1;
-                                false
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "CEL error for pod {}/{} (policy {}): {}",
-                                    pod_ns, pod_name, policy.name_any(), e
-                                );
-                                result.errors += 1;
-                                false
-                            }
-                        },
+                    match evaluator.evaluate(expr, &pod) {
+                        Ok(condition_result) => {
+                            debug!(
+                                "CEL evaluation for pod {}/{}: {} = {}",
+                                pod_ns, pod_name, expr, condition_result
+                            );
+                            condition_result
+                        }
+                        Err(crate::Error::CelCompilationError(e)) => {
+                            warn!(
+                                "CEL compilation failed for policy {}: {}",
+                                policy.name_any(), e
+                            );
+                            result.errors += 1;
+                            false
+                        }
+                        Err(crate::Error::CelEvaluationError(e)) => {
+                            warn!(
+                                "CEL evaluation failed for pod {}/{} (policy {}): {}",
+                                pod_ns, pod_name, policy.name_any(), e
+                            );
+                            result.errors += 1;
+                            false
+                        }
                         Err(e) => {
-                            warn!("Failed to acquire evaluator lock: {}", e);
+                            warn!(
+                                "CEL error for pod {}/{} (policy {}): {}",
+                                pod_ns, pod_name, policy.name_any(), e
+                            );
                             result.errors += 1;
                             false
                         }
@@ -396,7 +389,7 @@ pub async fn reconcile_pod(
     policies: &[DepodPolicy],
     client: &Client,
 ) -> Result<ReconcileResult> {
-    let evaluator = Arc::new(Mutex::new(CelEvaluator::new()));
+    let evaluator = Arc::new(CelEvaluator::new());
     reconcile_pod_with_evaluator(pod, policies, client, evaluator, None).await
 }
 
@@ -407,7 +400,7 @@ pub async fn reconcile_pod_with_rate_limit(
     client: &Client,
     rate_limiter: Arc<RateLimiter>,
 ) -> Result<ReconcileResult> {
-    let evaluator = Arc::new(Mutex::new(CelEvaluator::new()));
+    let evaluator = Arc::new(CelEvaluator::new());
     reconcile_pod_with_evaluator(pod, policies, client, evaluator, Some(rate_limiter)).await
 }
 

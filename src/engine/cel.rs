@@ -1,28 +1,31 @@
 use crate::Result;
 use cel::{Context, Program, Value};
 use chrono::Utc;
+use dashmap::DashMap;
 use k8s_openapi::api::core::v1::Pod;
+use serde_json::to_value as json_to_value;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-/// CEL expression evaluator with caching
+/// CEL expression evaluator with concurrent caching
 pub struct CelEvaluator {
-    /// Cache of compiled CEL programs
-    expression_cache: std::collections::HashMap<String, Arc<Program>>,
+    /// Cache of compiled CEL programs (concurrent, lock-free)
+    expression_cache: DashMap<String, Arc<Program>>,
 }
 
 impl CelEvaluator {
     pub fn new() -> Self {
         Self {
-            expression_cache: std::collections::HashMap::new(),
+            expression_cache: DashMap::new(),
         }
     }
 
     /// Compile and evaluate a CEL expression
-    pub fn evaluate(&mut self, expr: &str, pod: &Pod) -> Result<bool> {
+    /// Note: Now takes &self instead of &mut self for non-blocking concurrent evaluation
+    pub fn evaluate(&self, expr: &str, pod: &Pod) -> Result<bool> {
         // Get or compile the expression
         let program = if let Some(cached) = self.expression_cache.get(expr) {
-            cached.clone()
+            cached.value().clone()
         } else {
             // Compile new expression
             match Program::compile(expr) {
@@ -41,7 +44,7 @@ impl CelEvaluator {
         // Create evaluation context
         let context = build_evaluation_context(pod)?;
 
-        // Evaluate
+        // Evaluate (no lock held during expensive operation)
         match program.execute(&context) {
             Ok(result) => {
                 let bool_result = match result {
@@ -70,7 +73,7 @@ impl CelEvaluator {
     }
 
     /// Clear the expression cache
-    pub fn clear_cache(&mut self) {
+    pub fn clear_cache(&self) {
         self.expression_cache.clear();
     }
 
@@ -87,10 +90,38 @@ impl Default for CelEvaluator {
 }
 
 /// Build CEL context from a Pod
-fn build_evaluation_context(pod: &Pod) -> Result<Context> {
+/// Injects the entire Pod object for full CEL expression support
+fn build_evaluation_context(pod: &Pod) -> Result<Context<'_>> {
     let mut context = Context::default();
 
-    // Add convenient shortcuts
+    // Convert Pod to serde_json::Value then to cel::Value
+    let pod_json = json_to_value(pod)?;
+    let cel_pod_value = cel::to_value(&pod_json)
+        .map_err(|e| crate::Error::CelEvaluationError(e.to_string()))?;
+
+    // Inject Pod object under multiple variable names for compatibility
+    // "object" is the standard CEL variable name for the evaluated resource
+    let _ = context.add_variable("object", cel_pod_value.clone());
+    // "self" is used in examples/cel-policy.yaml for backward compatibility
+    let _ = context.add_variable("self", cel_pod_value.clone());
+    
+    // "status" shortcut for direct access to status subfield
+    if let Some(status) = &pod.status {
+        if let Ok(status_json) = json_to_value(status) {
+            if let Ok(status_cel) = cel::to_value(&status_json) {
+                let _ = context.add_variable("status", status_cel);
+            }
+        }
+    }
+    
+    // "metadata" shortcut for direct access to metadata subfield
+    if let Ok(metadata_json) = json_to_value(&pod.metadata) {
+        if let Ok(metadata_cel) = cel::to_value(&metadata_json) {
+            let _ = context.add_variable("metadata", metadata_cel);
+        }
+    }
+
+    // Add convenient shortcuts for common queries
     let creation_timestamp = pod
         .metadata
         .creation_timestamp
@@ -104,29 +135,14 @@ fn build_evaluation_context(pod: &Pod) -> Result<Context> {
         let _ = context.add_variable("now", Value::Int(now.timestamp()));
     }
 
-    // Add namespace
+    // Add namespace shortcut
     if let Some(ns) = pod.metadata.namespace.as_ref() {
         let _ = context.add_variable("namespace", Value::String(Arc::new(ns.clone())));
     }
 
-    // Add Pod name
+    // Add Pod name shortcut
     if let Some(name) = pod.metadata.name.as_ref() {
         let _ = context.add_variable("name", Value::String(Arc::new(name.clone())));
-    }
-
-    // Add phase
-    if let Some(status) = &pod.status {
-        if let Some(phase) = &status.phase {
-            let _ = context.add_variable("phase", Value::String(Arc::new(phase.clone())));
-        }
-
-        // Add restart count
-        if let Some(container_statuses) = &status.container_statuses {
-            if !container_statuses.is_empty() {
-                let restart_count = container_statuses[0].restart_count as i64;
-                let _ = context.add_variable("restartCount", Value::Int(restart_count));
-            }
-        }
     }
 
     Ok(context)
@@ -144,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_evaluator_clears_cache() {
-        let mut evaluator = CelEvaluator::new();
+        let evaluator = CelEvaluator::new();
         let mut pod = Pod::default();
         let now = Utc::now();
         let past = now - chrono::Duration::seconds(700);
@@ -160,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_simple_integer_comparison() {
-        let mut evaluator = CelEvaluator::new();
+        let evaluator = CelEvaluator::new();
         let mut pod = Pod::default();
         let now = Utc::now();
         let past = now - chrono::Duration::seconds(700);
@@ -174,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_pod_age_less_than() {
-        let mut evaluator = CelEvaluator::new();
+        let evaluator = CelEvaluator::new();
         let mut pod = Pod::default();
         let now = Utc::now();
         let past = now - chrono::Duration::seconds(100);
@@ -187,22 +203,38 @@ mod tests {
     }
 
     #[test]
-    fn test_phase_comparison() {
-        let mut evaluator = CelEvaluator::new();
+    fn test_pod_status_access() {
+        let evaluator = CelEvaluator::new();
         let mut pod = Pod::default();
         pod.status = Some(k8s_openapi::api::core::v1::PodStatus {
             phase: Some("Failed".to_string()),
             ..Default::default()
         });
 
-        let result = evaluator.evaluate("phase == 'Failed'", &pod);
+        // Test accessing via status shortcut
+        let result = evaluator.evaluate("status.phase == 'Failed'", &pod);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_self_reference() {
+        let evaluator = CelEvaluator::new();
+        let mut pod = Pod::default();
+        pod.status = Some(k8s_openapi::api::core::v1::PodStatus {
+            phase: Some("Failed".to_string()),
+            ..Default::default()
+        });
+
+        // Test accessing via self reference (backward compatibility)
+        let result = evaluator.evaluate("self.status.phase == 'Failed'", &pod);
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
 
     #[test]
     fn test_invalid_expression() {
-        let mut evaluator = CelEvaluator::new();
+        let evaluator = CelEvaluator::new();
         let pod = Pod::default();
 
         let result = evaluator.evaluate("this is not valid cel !!!!", &pod);
@@ -211,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_compilation_error() {
-        let mut evaluator = CelEvaluator::new();
+        let evaluator = CelEvaluator::new();
         let pod = Pod::default();
 
         let result = evaluator.evaluate("age >", &pod);
@@ -225,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_cache_hit() {
-        let mut evaluator = CelEvaluator::new();
+        let evaluator = CelEvaluator::new();
         let mut pod = Pod::default();
         let now = Utc::now();
         let past = now - chrono::Duration::seconds(700);

@@ -36,6 +36,7 @@ mod tests {
             limits: Limits {
                 max_deletes_per_minute: Some(20),
                 protect_system_namespaces: true,
+                excluded_namespaces: None,
             },
         };
 
