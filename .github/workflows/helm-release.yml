@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,13 +26,36 @@ jobs:
 
       - name: Package chart
         run: |
+          # build new chart package
           mkdir -p ./charts
           helm package ./helm/kube-depod -d ./charts
-          helm repo index ./charts --url https://mrchypark.github.io/kube-depod
+
+      - name: Download existing index.yaml if exists
+        run: |
+          # download existing index.yaml from GitHub Pages (if this is not the first release)
+          mkdir -p ./charts
+          curl -fsS https://mrchypark.github.io/kube-depod/index.yaml \
+            -o ./charts/index.yaml.old \
+            || echo "No existing index.yaml found (first release maybe)"
+
+      - name: Generate merged index.yaml
+        run: |
+          # merge existing index.yaml to keep old versions in repo index
+          if [ -f ./charts/index.yaml.old ]; then
+            helm repo index ./charts \
+              --url https://mrchypark.github.io/kube-depod \
+              --merge ./charts/index.yaml.old
+          else
+            helm repo index ./charts \
+              --url https://mrchypark.github.io/kube-depod
+          fi
 
       - name: Publish to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./charts
-          force_orphan: true
+          # keep existing .tgz files in gh-pages branch
+          keep_files: true
+          # DO NOT use force_orphan here (it will delete old files)
+          # force_orphan: false  # default
