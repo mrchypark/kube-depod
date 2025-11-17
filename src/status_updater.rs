@@ -157,19 +157,19 @@ mod tests {
     #[test]
     fn test_reset_counters() {
         let mut status = DepodPolicyStatus {
-            pods_evaluated: 10,
-            pods_matched: 5,
-            pods_deleted: 3,
-            evaluation_errors: 2,
+            pods_evaluated: 10u64,
+            pods_matched: 5u64,
+            pods_deleted: 3u64,
+            evaluation_errors: 2u64,
             ..Default::default()
         };
 
         StatusUpdater::reset_counters(&mut status);
 
-        assert_eq!(status.pods_evaluated, 0);
-        assert_eq!(status.pods_matched, 0);
-        assert_eq!(status.pods_deleted, 0);
-        assert_eq!(status.evaluation_errors, 0);
+        assert_eq!(status.pods_evaluated, 0u64);
+        assert_eq!(status.pods_matched, 0u64);
+        assert_eq!(status.pods_deleted, 0u64);
+        assert_eq!(status.evaluation_errors, 0u64);
     }
 
     #[test]

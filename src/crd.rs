@@ -164,20 +164,24 @@ pub struct DepodPolicyStatus {
     pub last_observed_time: Option<String>,
 
     /// Total number of pods evaluated under this policy
+    /// Uses u64 to prevent overflow in long-running operators
     #[serde(default)]
-    pub pods_evaluated: i32,
+    pub pods_evaluated: u64,
 
     /// Number of pods that matched this policy
+    /// Uses u64 to prevent overflow in long-running operators
     #[serde(default)]
-    pub pods_matched: i32,
+    pub pods_matched: u64,
 
     /// Number of pods deleted/evicted by this policy
+    /// Uses u64 to prevent overflow in long-running operators
     #[serde(default)]
-    pub pods_deleted: i32,
+    pub pods_deleted: u64,
 
     /// Any evaluation errors that occurred
+    /// Uses u64 to prevent overflow in long-running operators
     #[serde(default)]
-    pub evaluation_errors: i32,
+    pub evaluation_errors: u64,
 }
 
 /// PolicyCondition describes the state of a policy
