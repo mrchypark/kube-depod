@@ -238,12 +238,54 @@ impl PolicyCondition {
     }
 }
 
+/// Validate the When condition field
+///
+/// Enforces type-safe constraints:
+/// - CEL type: expression must be present and non-empty, ttlSeconds must be absent
+/// - Builtin type: ttlSeconds must be present and positive, expression must be absent
+///
+/// Returns error message for status update if validation fails
+pub fn validate_when(when: &When) -> crate::Result<()> {
+    match when.condition_type {
+        ConditionType::CEL => {
+            // CEL type: expression is required
+            if when.expression.is_none() || when.expression.as_ref().map_or(true, |s| s.trim().is_empty()) {
+                return Err(Error::ValidationError("when.expression required and cannot be empty for CEL type".to_string()));
+            }
+            // CEL type: ttlSeconds must not be set
+            if when.ttl_seconds.is_some() {
+                return Err(Error::ValidationError(
+                    "when.ttlSeconds must not be set for CEL type (use expression instead)".to_string()
+                ));
+            }
+        }
+        ConditionType::Builtin => {
+            // Builtin type: ttlSeconds is required and must be positive
+            if when.ttl_seconds.is_none() {
+                return Err(Error::ValidationError("when.ttlSeconds required for Builtin type".to_string()));
+            }
+            if let Some(ttl) = when.ttl_seconds {
+                if ttl <= 0 {
+                    return Err(Error::ValidationError("when.ttlSeconds must be a positive integer".to_string()));
+                }
+            }
+            // Builtin type: expression must not be set
+            if when.expression.is_some() {
+                return Err(Error::ValidationError(
+                    "when.expression must not be set for Builtin type (use ttlSeconds instead)".to_string()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 impl DepodPolicySpec {
     /// Validate the spec
     ///
     /// Enforces:
-    /// - CEL type: expression must be present, ttlSeconds must be absent
-    /// - Builtin type: ttlSeconds must be present and positive, expression must be absent
+    /// - Trigger: annotation_key and annotation_values must be non-empty
+    /// - When: condition type-specific validation via validate_when()
     /// - Action types are compile-time checked via enum
     /// - Grace period (if present) must be non-negative
     ///
@@ -257,36 +299,8 @@ impl DepodPolicySpec {
             return Err(Error::ValidationError("trigger.annotation_values cannot be empty".to_string()));
         }
 
-        // Validate 'when' condition type and fields
-        match &self.when.condition_type {
-            ConditionType::CEL => {
-                // CEL type: expression required, ttlSeconds must be absent
-                if self.when.expression.is_none() || self.when.expression.as_ref().map_or(true, |s| s.trim().is_empty()) {
-                    return Err(Error::ValidationError("when.expression required and cannot be empty for CEL type".to_string()));
-                }
-                if self.when.ttl_seconds.is_some() {
-                    return Err(Error::ValidationError(
-                        "when.ttlSeconds must not be set for CEL type (use expression instead)".to_string()
-                    ));
-                }
-            }
-            ConditionType::Builtin => {
-                // Builtin type: ttlSeconds required and positive, expression must be absent
-                if self.when.ttl_seconds.is_none() {
-                    return Err(Error::ValidationError("when.ttlSeconds required for Builtin type".to_string()));
-                }
-                if let Some(ttl) = self.when.ttl_seconds {
-                    if ttl <= 0 {
-                        return Err(Error::ValidationError("when.ttlSeconds must be a positive integer".to_string()));
-                    }
-                }
-                if self.when.expression.is_some() {
-                    return Err(Error::ValidationError(
-                        "when.expression must not be set for Builtin type (use ttlSeconds instead)".to_string()
-                    ));
-                }
-            }
-        }
+        // Validate 'when' condition using dedicated function
+        validate_when(&self.when)?;
 
         // Action type validation is now compile-time checked (no need for string matching)
 
