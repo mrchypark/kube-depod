@@ -176,8 +176,8 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
         ctx.metrics.increment_policy_matches();
 
         // Evaluate when condition
-        let condition_met = match policy.spec.when.condition_type.as_str() {
-            "Builtin" => {
+        let condition_met = match &policy.spec.when.condition_type {
+            crate::crd::ConditionType::Builtin => {
                 if let Some(ttl_seconds) = policy.spec.when.ttl_seconds {
                     if evaluate_ttl_condition(&pod, ttl_seconds) {
                         debug!("Pod {}/{} meets TTL condition", pod_ns, pod_name);
@@ -210,7 +210,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                     false
                 }
             }
-            "CEL" => {
+            crate::crd::ConditionType::CEL => {
                 if let Some(expr) = &policy.spec.when.expression {
                     match ctx.evaluator.evaluate(expr, &pod) {
                         Ok(condition_result) => {
@@ -261,14 +261,6 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                     false
                 }
             }
-            _ => {
-                warn!(
-                    "Unknown condition type: {}",
-                    policy.spec.when.condition_type
-                );
-                ctx.metrics.increment_evaluation_errors();
-                false
-            }
         };
 
         if !condition_met {
@@ -305,8 +297,8 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
         }
 
         // Execute then action
-        match policy.spec.then.action_type.as_str() {
-            "Delete" => {
+        match &policy.spec.then.action_type {
+            crate::crd::ActionType::Delete => {
                 if policy.spec.then.dry_run {
                     info!(
                         "DRY RUN: Would delete pod {}/{} (policy: {})",
@@ -358,7 +350,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                     }
                 }
             }
-            "Evict" => {
+            crate::crd::ActionType::Evict => {
                 if policy.spec.then.dry_run {
                     info!(
                         "DRY RUN: Would evict pod {}/{} (policy: {})",
@@ -423,10 +415,6 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         }
                     }
                 }
-            }
-            _ => {
-                warn!("Unknown action type: {}", policy.spec.then.action_type);
-                ctx.metrics.increment_evaluation_errors();
             }
         }
     }

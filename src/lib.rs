@@ -39,7 +39,7 @@ pub struct Context {
 
 #[cfg(test)]
 mod tests {
-    use crate::crd::{DepodPolicySpec, Limits, Match, Then, Trigger, When};
+    use crate::crd::{ActionType, ConditionType, DepodPolicySpec, Limits, Match, Then, Trigger, When};
 
     #[test]
     fn test_policy_validation_builtin_valid() {
@@ -53,12 +53,12 @@ mod tests {
                 annotation_values: vec!["ttl-10m".to_string()],
             },
             when: When {
-                condition_type: "Builtin".to_string(),
+                condition_type: ConditionType::Builtin,
                 expression: None,
                 ttl_seconds: Some(600),
             },
             then: Then {
-                action_type: "Delete".to_string(),
+                action_type: ActionType::Delete,
                 grace_period_seconds: Some(30),
                 dry_run: false,
             },
@@ -84,12 +84,12 @@ mod tests {
                 annotation_values: vec!["auto-cleanup".to_string()],
             },
             when: When {
-                condition_type: "CEL".to_string(),
+                condition_type: ConditionType::CEL,
                 expression: Some("status.phase == 'Succeeded'".to_string()),
                 ttl_seconds: None,
             },
             then: Then {
-                action_type: "Delete".to_string(),
+                action_type: ActionType::Delete,
                 grace_period_seconds: Some(30),
                 dry_run: false,
             },
@@ -115,12 +115,12 @@ mod tests {
                 annotation_values: vec!["auto-cleanup".to_string()],
             },
             when: When {
-                condition_type: "CEL".to_string(),
+                condition_type: ConditionType::CEL,
                 expression: None,
                 ttl_seconds: None,
             },
             then: Then {
-                action_type: "Delete".to_string(),
+                action_type: ActionType::Delete,
                 grace_period_seconds: None,
                 dry_run: false,
             },
@@ -147,12 +147,12 @@ mod tests {
                 annotation_values: vec!["auto-cleanup".to_string()],
             },
             when: When {
-                condition_type: "CEL".to_string(),
+                condition_type: ConditionType::CEL,
                 expression: Some("status.phase == 'Succeeded'".to_string()),
                 ttl_seconds: Some(600), // Should not be set for CEL
             },
             then: Then {
-                action_type: "Delete".to_string(),
+                action_type: ActionType::Delete,
                 grace_period_seconds: None,
                 dry_run: false,
             },
@@ -179,12 +179,12 @@ mod tests {
                 annotation_values: vec!["ttl-10m".to_string()],
             },
             when: When {
-                condition_type: "Builtin".to_string(),
+                condition_type: ConditionType::Builtin,
                 expression: None,
                 ttl_seconds: None, // Missing required TTL
             },
             then: Then {
-                action_type: "Delete".to_string(),
+                action_type: ActionType::Delete,
                 grace_period_seconds: None,
                 dry_run: false,
             },
@@ -211,12 +211,12 @@ mod tests {
                 annotation_values: vec!["ttl-10m".to_string()],
             },
             when: When {
-                condition_type: "Builtin".to_string(),
+                condition_type: ConditionType::Builtin,
                 expression: Some("status.phase == 'Failed'".to_string()), // Should not be set for Builtin
                 ttl_seconds: Some(600),
             },
             then: Then {
-                action_type: "Delete".to_string(),
+                action_type: ActionType::Delete,
                 grace_period_seconds: None,
                 dry_run: false,
             },
@@ -243,12 +243,12 @@ mod tests {
                 annotation_values: vec!["ttl-10m".to_string()],
             },
             when: When {
-                condition_type: "Builtin".to_string(),
+                condition_type: ConditionType::Builtin,
                 expression: None,
                 ttl_seconds: Some(0), // TTL must be positive
             },
             then: Then {
-                action_type: "Delete".to_string(),
+                action_type: ActionType::Delete,
                 grace_period_seconds: None,
                 dry_run: false,
             },
@@ -261,69 +261,5 @@ mod tests {
 
         let err = spec.validate().unwrap_err();
         assert!(err.contains("when.ttlSeconds must be a positive integer"));
-    }
-
-    #[test]
-    fn test_policy_validation_invalid_action_type() {
-        let spec = DepodPolicySpec {
-            match_: Match {
-                namespace_selector: None,
-                pod_selector: None,
-            },
-            trigger: Trigger {
-                annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["ttl-10m".to_string()],
-            },
-            when: When {
-                condition_type: "Builtin".to_string(),
-                expression: None,
-                ttl_seconds: Some(600),
-            },
-            then: Then {
-                action_type: "Invalid".to_string(),
-                grace_period_seconds: None,
-                dry_run: false,
-            },
-            limits: Limits {
-                max_deletes_per_minute: None,
-                protect_system_namespaces: true,
-                excluded_namespaces: None,
-            },
-        };
-
-        let err = spec.validate().unwrap_err();
-        assert!(err.contains("unsupported action type"));
-    }
-
-    #[test]
-    fn test_policy_validation_invalid_condition_type() {
-        let spec = DepodPolicySpec {
-            match_: Match {
-                namespace_selector: None,
-                pod_selector: None,
-            },
-            trigger: Trigger {
-                annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["ttl-10m".to_string()],
-            },
-            when: When {
-                condition_type: "Unknown".to_string(),
-                expression: None,
-                ttl_seconds: None,
-            },
-            then: Then {
-                action_type: "Delete".to_string(),
-                grace_period_seconds: None,
-                dry_run: false,
-            },
-            limits: Limits {
-                max_deletes_per_minute: None,
-                protect_system_namespaces: true,
-                excluded_namespaces: None,
-            },
-        };
-
-        let err = spec.validate().unwrap_err();
-        assert!(err.contains("unsupported condition type"));
     }
 }

@@ -3,6 +3,26 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Condition type for policy evaluation
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum ConditionType {
+    /// CEL (Common Expression Language) condition
+    CEL,
+    /// Built-in TTL (Time To Live) condition
+    Builtin,
+}
+
+/// Action type to perform when condition is met
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum ActionType {
+    /// Delete the pod directly
+    Delete,
+    /// Evict the pod (respects Pod Disruption Budgets)
+    Evict,
+}
+
 /// DepodPolicy CRD for automated Pod cleanup
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[kube(
@@ -72,7 +92,7 @@ pub struct Trigger {
 pub struct When {
     /// Type of condition: CEL or Builtin
     #[serde(rename = "type")]
-    pub condition_type: String,
+    pub condition_type: ConditionType,
 
     /// CEL expression or condition parameters
     #[serde(default)]
@@ -88,7 +108,7 @@ pub struct When {
 pub struct Then {
     /// Type of action: Delete, Evict, etc.
     #[serde(rename = "type")]
-    pub action_type: String,
+    pub action_type: ActionType,
 
     /// Grace period for deletion/eviction in seconds
     #[serde(default, rename = "gracePeriodSeconds")]
@@ -117,12 +137,13 @@ pub struct Limits {
 }
 
 impl DepodPolicySpec {
-    /// Validate the spec with strict type checking
-    /// 
+    /// Validate the spec
+    ///
     /// Enforces:
     /// - CEL type: expression must be present, ttlSeconds must be absent
-    /// - Builtin type: ttlSeconds must be present, expression must be absent
-    /// - Other types: rejected
+    /// - Builtin type: ttlSeconds must be present and positive, expression must be absent
+    /// - Action types are compile-time checked via enum
+    /// - Grace period (if present) must be non-negative
     pub fn validate(&self) -> Result<(), String> {
         if self.trigger.annotation_key.is_empty() {
             return Err("trigger.annotation_key cannot be empty".to_string());
@@ -133,8 +154,8 @@ impl DepodPolicySpec {
         }
 
         // Validate 'when' condition type and fields
-        match self.when.condition_type.as_str() {
-            "CEL" => {
+        match &self.when.condition_type {
+            ConditionType::CEL => {
                 // CEL type: expression required, ttlSeconds must be absent
                 if self.when.expression.is_none() || self.when.expression.as_ref().map_or(true, |s| s.trim().is_empty()) {
                     return Err("when.expression required and cannot be empty for CEL type".to_string());
@@ -145,8 +166,8 @@ impl DepodPolicySpec {
                     );
                 }
             }
-            "Builtin" => {
-                // Builtin type: ttlSeconds required, expression must be absent
+            ConditionType::Builtin => {
+                // Builtin type: ttlSeconds required and positive, expression must be absent
                 if self.when.ttl_seconds.is_none() {
                     return Err("when.ttlSeconds required for Builtin type".to_string());
                 }
@@ -161,21 +182,9 @@ impl DepodPolicySpec {
                     );
                 }
             }
-            _ => {
-                return Err(format!(
-                    "unsupported condition type '{}': must be 'CEL' or 'Builtin'",
-                    self.when.condition_type
-                ));
-            }
         }
 
-        // Validate 'then' action type
-        if !["Delete", "Evict"].contains(&self.then.action_type.as_str()) {
-            return Err(format!(
-                "unsupported action type '{}': must be 'Delete' or 'Evict'",
-                self.then.action_type
-            ));
-        }
+        // Action type validation is now compile-time checked (no need for string matching)
 
         // Validate grace period if present
         if let Some(grace) = self.then.grace_period_seconds {
