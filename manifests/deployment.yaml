@@ -68,14 +68,20 @@ spec:
           failureThreshold: 3
         securityContext:
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false
+          readOnlyRootFilesystem: true
           runAsNonRoot: true
           runAsUser: 65534  # nobody user
           capabilities:
             drop:
               - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
       securityContext:
         fsGroup: 65534
+      volumes:
+      - name: tmp
+        emptyDir: {}
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
