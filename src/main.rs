@@ -1,4 +1,5 @@
 use anyhow::Result;
+use arc_swap::ArcSwap;
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::runtime::controller::Controller;
@@ -57,34 +58,52 @@ async fn main() -> Result<()> {
     let metrics = Arc::new(Metrics::new());
     let metrics_clone = metrics.clone();
 
-    // Create rate limiter (max 20 deletes per minute)
-    let rate_limiter = Arc::new(RateLimiter::new(20));
+    // Read rate limit from environment variable (default: 20)
+    let rate_limit_per_minute = std::env::var("RATE_LIMIT_PER_MINUTE")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(20);
+    info!("Rate limit configured: {} deletes per minute", rate_limit_per_minute);
+    let rate_limiter = Arc::new(RateLimiter::new(rate_limit_per_minute));
+
+    // Read pod patch concurrency limit from environment variable (default: 10)
+    let pod_patch_concurrency_limit = std::env::var("POD_PATCH_CONCURRENCY_LIMIT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(10);
+    info!(
+        "Pod patch concurrency limit configured: {} concurrent patch operations",
+        pod_patch_concurrency_limit
+    );
+
+    // Read metrics port from environment variable (default: 8080)
+    let metrics_port = std::env::var("METRICS_PORT")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(8080);
+    info!("Metrics server port configured: {}", metrics_port);
 
     // Start metrics HTTP server in background task
     tokio::spawn(async move {
-        if let Err(e) = start_server(metrics_clone, 8080).await {
+        if let Err(e) = start_server(metrics_clone, metrics_port).await {
             tracing::error!("Metrics server error: {}", e);
         }
     });
 
-    // Shared state for policies
-    let policies = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-
-    // Load policies initially
-    {
-        let initial_policies = match load_policies(&client).await {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("Failed to load initial policies: {}", e);
-                Vec::new()
-            }
-        };
-        if !initial_policies.is_empty() {
-            info!(count = initial_policies.len(), "Initial policies loaded");
+    // Load policies initially (lock-free with ArcSwap)
+    let initial_policies = match load_policies(&client).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("Failed to load initial policies: {}", e);
+            Vec::new()
         }
-        let mut policies_mut = policies.write().await;
-        *policies_mut = initial_policies;
+    };
+    if !initial_policies.is_empty() {
+        info!(count = initial_policies.len(), "Initial policies loaded");
     }
+
+    // Shared state for policies using ArcSwap (lock-free)
+    let policies = Arc::new(ArcSwap::new(Arc::new(initial_policies)));
 
     // Create Context for shared state
     let ctx = Arc::new(Context {
@@ -95,6 +114,7 @@ async fn main() -> Result<()> {
         rate_limiter,
         operator_pod_name: Arc::new(operator_pod_name),
         periodic_resync_interval,
+        pod_patch_concurrency_limit,
     });
 
     // --- Start DepodPolicy controller ---

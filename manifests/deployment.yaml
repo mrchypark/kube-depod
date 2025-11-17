@@ -20,11 +20,11 @@ spec:
       serviceAccountName: kube-depod
       containers:
       - name: operator
-        image: kube-depod:latest
-        imagePullPolicy: IfNotPresent  # For local development; change to IfNotPresent for production
+        image: ghcr.io/mrchypark/kube-depod:v0.1.3
+        imagePullPolicy: IfNotPresent
         env:
         - name: RUST_LOG
-          value: "kube_depod=info,kube=info"
+          value: "info"
         - name: OPERATOR_POD_NAME
           valueFrom:
             fieldRef:
@@ -33,21 +33,39 @@ spec:
           value: "true"
         - name: RESYNC_INTERVAL_SECONDS
           value: "3600"
+        - name: RATE_LIMIT_PER_MINUTE
+          value: "20"
+        - name: POD_PATCH_CONCURRENCY_LIMIT
+          value: "10"
+        - name: METRICS_PORT
+          value: "8080"
+        ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
         resources:
           requests:
             cpu: 100m
             memory: 128Mi
           limits:
             cpu: 500m
-            memory: 512Mi
+            memory: 256Mi
         livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - "ps aux | grep operator || exit 1"
-          initialDelaySeconds: 30
-          periodSeconds: 60
+          httpGet:
+            path: /health
+            port: metrics
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: false

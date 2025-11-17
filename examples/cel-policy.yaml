@@ -1,5 +1,13 @@
 # CEL-based Pod cleanup policy examples
 # These policies demonstrate various CEL expressions for automated pod deletion
+#
+# Available CEL Variables:
+# - pod: Full Pod object (root variable)
+# - metadata: pod.metadata (namespace, name, labels, annotations, etc.)
+# - spec: pod.spec (containers, volumes, etc.)
+# - status: pod.status (phase, containerStatuses, conditions, etc.)
+# - now: Current Unix timestamp (epoch seconds, UTC)
+# - age: Seconds since pod creation (creationTimestamp)
 
 ---
 # Policy 1: Delete Pods with CrashLoopBackOff status
@@ -141,7 +149,7 @@ spec:
   when:
     type: "CEL"
     expression: |
-      has(status) &&
+      has(status.phase) &&
       status.phase == 'Succeeded'
 
   then:

@@ -1,7 +1,6 @@
 use crate::crd::DepodPolicy;
-use crate::engine::CelEvaluator;
-use crate::rate_limiter::RateLimiter;
 use crate::{Context, Result};
+use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::api::policy::v1::Eviction;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{DeleteOptions, ObjectMeta};
@@ -38,7 +37,7 @@ pub fn matches_policy(pod: &Pod, policy: &DepodPolicy) -> bool {
         if !pod_selector.match_labels.is_empty() {
             let pod_labels = pod.labels();
             for (key, value) in &pod_selector.match_labels {
-                if pod_labels.get(key.as_str()) != Some(&value.to_string()) {
+                if pod_labels.get(key.as_str()) != Some(value) {
                     return false;
                 }
             }
@@ -105,295 +104,35 @@ pub fn is_namespace_protected(
     false
 }
 
-/// Main reconciliation logic for a pod
-pub async fn reconcile_pod_with_evaluator(
-    pod: Pod,
-    policies: &[DepodPolicy],
-    client: &Client,
-    evaluator: Arc<CelEvaluator>,
-    rate_limiter: Option<Arc<RateLimiter>>,
-) -> Result<ReconcileResult> {
-    let pod_name = pod.name_any();
-    let pod_ns = pod.namespace().unwrap_or_default();
-
-    debug!("Reconciling pod {}/{}", pod_ns, pod_name);
-
-    let mut result = ReconcileResult::default();
-
-    for policy in policies {
-        if policy.spec.validate().is_err() {
-            warn!(
-                "Invalid policy {}: {:?}",
-                policy.name_any(),
-                policy.spec.validate()
-            );
-            result.errors += 1;
-            continue;
-        }
-
-        if !matches_policy(&pod, policy) {
-            debug!(
-                "Pod {}/{} does not match policy {}",
-                pod_ns,
-                pod_name,
-                policy.name_any()
-            );
-            continue;
-        }
-
-        if !check_trigger(
-            &pod,
-            &policy.spec.trigger.annotation_key,
-            &policy.spec.trigger.annotation_values,
-        ) {
-            debug!(
-                "Pod {}/{} does not have trigger annotation for policy {}",
-                pod_ns,
-                pod_name,
-                policy.name_any()
-            );
-            continue;
-        }
-
-        result.matches += 1;
-
-        // Evaluate when condition
-        let condition_met = match policy.spec.when.condition_type.as_str() {
-            "Builtin" => {
-                if let Some(ttl_seconds) = policy.spec.when.ttl_seconds {
-                    evaluate_ttl_condition(&pod, ttl_seconds)
-                } else {
-                    false
-                }
-            }
-            "CEL" => {
-                if let Some(expr) = &policy.spec.when.expression {
-                    match evaluator.evaluate(expr, &pod) {
-                        Ok(condition_result) => {
-                            debug!(
-                                "CEL evaluation for pod {}/{}: {} = {}",
-                                pod_ns, pod_name, expr, condition_result
-                            );
-                            condition_result
-                        }
-                        Err(crate::Error::CelCompilationError(e)) => {
-                            warn!(
-                                "CEL compilation failed for policy {}: {}",
-                                policy.name_any(), e
-                            );
-                            result.errors += 1;
-                            false
-                        }
-                        Err(crate::Error::CelEvaluationError(e)) => {
-                            warn!(
-                                "CEL evaluation failed for pod {}/{} (policy {}): {}",
-                                pod_ns, pod_name, policy.name_any(), e
-                            );
-                            result.errors += 1;
-                            false
-                        }
-                        Err(e) => {
-                            warn!(
-                                "CEL error for pod {}/{} (policy {}): {}",
-                                pod_ns, pod_name, policy.name_any(), e
-                            );
-                            result.errors += 1;
-                            false
-                        }
-                    }
-                } else {
-                    warn!(
-                        "CEL condition missing expression for policy {}",
-                        policy.name_any()
-                    );
-                    result.errors += 1;
-                    false
-                }
-            }
-            _ => {
-                warn!(
-                    "Unknown condition type: {}",
-                    policy.spec.when.condition_type
-                );
-                result.errors += 1;
-                false
-            }
-        };
-
-        if !condition_met {
-            debug!(
-                "Condition not met for pod {}/{} under policy {}",
-                pod_ns,
-                pod_name,
-                policy.name_any()
-            );
-            continue;
-        }
-
-        // Check safety limits (system namespaces + excluded namespaces)
-        if is_namespace_protected(
-            &pod_ns,
-            policy.spec.limits.protect_system_namespaces,
-            &policy.spec.limits.excluded_namespaces,
-        ) {
-            let protection_reason = if policy.spec.limits.protect_system_namespaces
-                && is_system_namespace(&pod_ns)
-            {
-                "system namespace"
-            } else {
-                "excluded namespace"
-            };
-
-            info!(
-                "Skipping deletion of pod {}/{} ({}), policy: {}",
-                pod_ns, pod_name, protection_reason, policy.name_any()
-            );
-            continue;
-        }
-
-        // Execute then action
-        match policy.spec.then.action_type.as_str() {
-            "Delete" => {
-                if policy.spec.then.dry_run {
-                    info!(
-                        "DRY RUN: Would delete pod {}/{} (policy: {})",
-                        pod_ns,
-                        pod_name,
-                        policy.name_any()
-                    );
-                } else {
-                    // Check rate limit if enabled
-                    if let Some(limiter) = &rate_limiter {
-                        if !limiter.allow() {
-                            info!(
-                                "Rate limit exceeded for pod {}/{} (policy: {})",
-                                pod_ns,
-                                pod_name,
-                                policy.name_any()
-                            );
-                            result.rate_limited = true;
-                            continue;
-                        }
-                    }
-
-                    info!(
-                        "Deleting pod {}/{} (policy: {})",
-                        pod_ns,
-                        pod_name,
-                        policy.name_any()
-                    );
-
-                    let api: Api<Pod> = Api::namespaced(client.clone(), &pod_ns);
-                    let dp = DeleteParams {
-                        grace_period_seconds: policy
-                            .spec
-                            .then
-                            .grace_period_seconds
-                            .map(|g| g as u32),
-                        ..Default::default()
-                    };
-
-                    match api.delete(&pod_name, &dp).await {
-                        Ok(_) => {
-                            info!("Successfully deleted pod {}/{}", pod_ns, pod_name);
-                            result.deleted = true;
-                        }
-                        Err(e) => {
-                            warn!("Failed to delete pod {}/{}: {}", pod_ns, pod_name, e);
-                            result.errors += 1;
-                        }
-                    }
-                }
-            }
-            "Evict" => {
-                if policy.spec.then.dry_run {
-                    info!(
-                        "DRY RUN: Would evict pod {}/{} (policy: {})",
-                        pod_ns,
-                        pod_name,
-                        policy.name_any()
-                    );
-                } else {
-                    // Check rate limit if enabled
-                    if let Some(limiter) = &rate_limiter {
-                        if !limiter.allow() {
-                            info!(
-                                "Rate limit exceeded for pod {}/{} (policy: {})",
-                                pod_ns,
-                                pod_name,
-                                policy.name_any()
-                            );
-                            result.rate_limited = true;
-                            continue;
-                        }
-                    }
-
-                    info!(
-                        "Evicting pod {}/{} (policy: {}) - respects Pod Disruption Budgets",
-                        pod_ns,
-                        pod_name,
-                        policy.name_any()
-                    );
-
-                    // Create eviction request respecting Pod Disruption Budgets
-                    let eviction = Eviction {
-                        metadata: ObjectMeta {
-                            name: Some(pod_name.clone()),
-                            namespace: Some(pod_ns.clone()),
-                            ..Default::default()
-                        },
-                        delete_options: Some(DeleteOptions {
-                            grace_period_seconds: policy.spec.then.grace_period_seconds,
-                            ..Default::default()
-                        }),
-                    };
-
-                    // Create the eviction request using Policy API v1
-                    // This respects Pod Disruption Budgets (PDBs) unlike direct deletion
-                    let api: Api<Eviction> = Api::all(client.clone());
-
-                    match api.create(&PostParams::default(), &eviction).await {
-                        Ok(_) => {
-                            info!(
-                                "Successfully evicted pod {}/{} (respects PDB)",
-                                pod_ns, pod_name
-                            );
-                            result.deleted = true;
-                        }
-                        Err(e) => {
-                            // If eviction fails (e.g., due to PDB), log as warning
-                            warn!(
-                                "Failed to evict pod {}/{} (respects PDB): {}",
-                                pod_ns, pod_name, e
-                            );
-                            result.errors += 1;
-                        }
-                    }
-                }
-            }
-            _ => {
-                warn!("Unknown action type: {}", policy.spec.then.action_type);
-                result.errors += 1;
-            }
-        }
-
-        if result.deleted {
-            break; // Stop processing further policies after successful deletion
-        }
-    }
-
-    Ok(result)
-}
-
-/// Load all policy rules
+/// Load all policy rules with validation
+///
+/// This function loads policies and filters out invalid ones at load time.
+/// Invalid policies are logged as warnings but excluded from the result.
+/// This ensures that only valid policies are cached and used in the hot path.
 pub async fn load_policies(client: &Client) -> Result<Vec<DepodPolicy>> {
     let api: Api<DepodPolicy> = Api::all(client.clone());
     let lp = ListParams::default();
 
-    let policies = api.list(&lp).await?;
-    info!(count = policies.items.len(), "Loaded policies");
+    let all_policies = api.list(&lp).await?;
+    let total_count = all_policies.items.len();
 
-    Ok(policies.items)
+    let mut valid_policies = Vec::new();
+    for policy in all_policies.items {
+        match policy.spec.validate() {
+            Ok(()) => valid_policies.push(policy),
+            Err(e) => {
+                warn!("Skipping invalid policy {}: {}", policy.name_any(), e);
+            }
+        }
+    }
+
+    info!(
+        count = valid_policies.len(),
+        skipped = total_count - valid_policies.len(),
+        "Loaded policies"
+    );
+
+    Ok(valid_policies)
 }
 
 /// New reconcile function for kube-rs Controller framework (Pod-specific)
@@ -405,20 +144,11 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
 
     ctx.metrics.increment_pods_evaluated();
 
-    let policies = ctx.policies.read().await;
+    // Load policies (lock-free with ArcSwap - no await, no blocking)
+    let policies = ctx.policies.load();
     let mut ttl_requeue_seconds: Option<u64> = None;
 
     for policy in policies.iter() {
-        if policy.spec.validate().is_err() {
-            warn!(
-                "Invalid policy {}: {:?}",
-                policy.name_any(),
-                policy.spec.validate()
-            );
-            ctx.metrics.increment_evaluation_errors();
-            continue;
-        }
-
         if !matches_policy(&pod, policy) {
             debug!(
                 "Pod {}/{} does not match policy {}",
@@ -493,7 +223,8 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         Err(crate::Error::CelCompilationError(e)) => {
                             warn!(
                                 "CEL compilation failed for policy {}: {}",
-                                policy.name_any(), e
+                                policy.name_any(),
+                                e
                             );
                             ctx.metrics.increment_evaluation_errors();
                             false
@@ -501,7 +232,10 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         Err(crate::Error::CelEvaluationError(e)) => {
                             warn!(
                                 "CEL evaluation failed for pod {}/{} (policy {}): {}",
-                                pod_ns, pod_name, policy.name_any(), e
+                                pod_ns,
+                                pod_name,
+                                policy.name_any(),
+                                e
                             );
                             ctx.metrics.increment_evaluation_errors();
                             false
@@ -509,7 +243,10 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         Err(e) => {
                             warn!(
                                 "CEL error for pod {}/{} (policy {}): {}",
-                                pod_ns, pod_name, policy.name_any(), e
+                                pod_ns,
+                                pod_name,
+                                policy.name_any(),
+                                e
                             );
                             ctx.metrics.increment_evaluation_errors();
                             false
@@ -550,17 +287,19 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
             policy.spec.limits.protect_system_namespaces,
             &policy.spec.limits.excluded_namespaces,
         ) {
-            let protection_reason = if policy.spec.limits.protect_system_namespaces
-                && is_system_namespace(&pod_ns)
-            {
-                "system namespace"
-            } else {
-                "excluded namespace"
-            };
+            let protection_reason =
+                if policy.spec.limits.protect_system_namespaces && is_system_namespace(&pod_ns) {
+                    "system namespace"
+                } else {
+                    "excluded namespace"
+                };
 
             info!(
                 "Skipping deletion of pod {}/{} ({}), policy: {}",
-                pod_ns, pod_name, protection_reason, policy.name_any()
+                pod_ns,
+                pod_name,
+                protection_reason,
+                policy.name_any()
             );
             continue;
         }
@@ -709,7 +448,10 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
         Ok(Action::requeue(interval))
     } else {
         // No TTL pending and cron check disabled - wait for changes
-        debug!("Pod {}/{} reconciled, waiting for changes", pod_ns, pod_name);
+        debug!(
+            "Pod {}/{} reconciled, waiting for changes",
+            pod_ns, pod_name
+        );
         Ok(Action::await_change())
     }
 }
@@ -722,7 +464,11 @@ pub fn error_policy_pod(pod: Arc<Pod>, error: &crate::Error, _ctx: Arc<Context>)
 }
 
 /// DepodPolicy controller error handler
-pub fn error_policy_policy(_policy: Arc<DepodPolicy>, error: &crate::Error, _ctx: Arc<Context>) -> Action {
+pub fn error_policy_policy(
+    _policy: Arc<DepodPolicy>,
+    error: &crate::Error,
+    _ctx: Arc<Context>,
+) -> Action {
     warn!("Policy reconciliation error: {}", error);
     Action::requeue(Duration::from_secs(60))
 }
@@ -733,15 +479,25 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
     use serde_json::json;
 
     let policy_name = policy.name_any();
+
+    // --- Validation: Early exit if policy is invalid ---
+    if let Err(e) = policy.spec.validate() {
+        warn!(
+            "Skipping invalid policy {}: {}. Cache will not include this policy.",
+            policy_name, e
+        );
+        return Ok(Action::await_change());
+    }
+
     info!(
         "Policy {} changed or detected, updating cache and re-triggering pods",
         policy_name
     );
 
-    // --- 1. Reload entire policy cache ---
+    // --- 1. Reload entire policy cache (lock-free with ArcSwap) ---
     match load_policies(&ctx.client).await {
         Ok(all_policies) => {
-            *ctx.policies.write().await = all_policies;
+            ctx.policies.store(Arc::new(all_policies));
             info!("Policy cache refreshed due to {} change", policy_name);
         }
         Err(e) => {
@@ -751,7 +507,6 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
     }
 
     // --- 2. Find and touch all matching pods ---
-    let pod_api: Api<Pod> = Api::all(ctx.client.clone());
 
     // Build label selector from pod_selector
     let mut lp = ListParams::default();
@@ -767,15 +522,21 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
         }
     }
 
-    let pods_to_trigger = match pod_api.list(&lp).await {
-        Ok(pods) => pods,
-        Err(e) => {
-            warn!("Failed to list pods for policy {}: {}", policy_name, e);
-            return Ok(Action::requeue(Duration::from_secs(60)));
+    // Get namespace selector
+    let namespaces: Vec<String> = if let Some(ns_selector) = &policy.spec.match_.namespace_selector
+    {
+        if ns_selector.match_names.is_empty() {
+            // Empty match_names means all namespaces
+            vec![]
+        } else {
+            ns_selector.match_names.clone()
         }
+    } else {
+        // No namespace selector means all namespaces
+        vec![]
     };
 
-    // Patch pods to trigger reconciliation
+    // Patch params for triggering reconciliation
     let patch_params = PatchParams::default();
     let patch = Patch::Merge(json!({
         "metadata": {
@@ -787,35 +548,121 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
         }
     }));
 
-    for pod in pods_to_trigger {
-        // [신규] 1. Opt-in 검사: 이 파드가 이 정책을 사용한다고 어노테이션을 달았는가?
-        if !check_trigger(
-            &pod,
-            &policy.spec.trigger.annotation_key,
-            &policy.spec.trigger.annotation_values,
-        ) {
-            // 이 파드는 레이블은 일치하지만, 이 정책을 사용하지 않으므로 "깨울" 필요가 없음
-            continue;
-        }
+    // If namespaces are restricted, iterate per namespace; otherwise use Api::all
+    if namespaces.is_empty() {
+        // All namespaces: use Api::all for efficiency
+        let pod_api: Api<Pod> = Api::all(ctx.client.clone());
+        let pods_to_trigger = match pod_api.list(&lp).await {
+            Ok(pods) => pods,
+            Err(e) => {
+                warn!("Failed to list pods for policy {}: {}", policy_name, e);
+                return Ok(Action::requeue(Duration::from_secs(60)));
+            }
+        };
 
-        // [기존] 2. 안전 장치(Guardrail) 검사: 이 파드가 정책의 최종 범위(NS, Label)에 일치하는가?
-        if !matches_policy(&pod, &policy) {
-            continue;
-        }
+        // Parallel pod touch with concurrency limit
+        let policy_for_filter = policy.clone();
+        futures::stream::iter(pods_to_trigger)
+            .filter_map(move |pod| {
+                let policy = policy_for_filter.clone();
+                async move {
+                    // Opt-in check: does this pod have the trigger annotation?
+                    if !check_trigger(
+                        &pod,
+                        &policy.spec.trigger.annotation_key,
+                        &policy.spec.trigger.annotation_values,
+                    ) {
+                        return None;
+                    }
 
-        let pod_name = pod.name_any();
-        let pod_ns = pod.namespace().unwrap_or_default();
-        info!(
-            "Triggering reconciliation for Pod {}/{} (policy: {})",
-            pod_ns, pod_name, policy_name
-        );
+                    // Safety guardrail: does this pod match the policy's full scope?
+                    if !matches_policy(&pod, &policy) {
+                        return None;
+                    }
 
-        // Touch pod to trigger Modify event in Pod controller
-        if let Err(e) = pod_api.patch(&pod_name, &patch_params, &patch).await {
-            warn!(
-                "Failed to 'touch' pod {}/{}: {}",
-                pod_ns, pod_name, e
-            );
+                    Some(pod)
+                }
+            })
+            .for_each_concurrent(Some(ctx.pod_patch_concurrency_limit), |pod| {
+                let pod_api = pod_api.clone();
+                let patch_params = patch_params.clone();
+                let patch = patch.clone();
+                let policy_name = policy_name.clone();
+
+                async move {
+                    let pod_name = pod.name_any();
+                    let pod_ns = pod.namespace().unwrap_or_default();
+                    info!(
+                        "Triggering reconciliation for Pod {}/{} (policy: {})",
+                        pod_ns, pod_name, policy_name
+                    );
+
+                    // Touch pod to trigger Modify event in Pod controller
+                    if let Err(e) = pod_api.patch(&pod_name, &patch_params, &patch).await {
+                        warn!("Failed to 'touch' pod {}/{}: {}", pod_ns, pod_name, e);
+                    }
+                }
+            })
+            .await;
+    } else {
+        // Restricted namespaces: iterate per namespace for efficiency
+        for ns in &namespaces {
+            let pod_api: Api<Pod> = Api::namespaced(ctx.client.clone(), ns);
+            let pods_to_trigger = match pod_api.list(&lp).await {
+                Ok(pods) => pods,
+                Err(e) => {
+                    warn!(
+                        "Failed to list pods in namespace {} for policy {}: {}",
+                        ns, policy_name, e
+                    );
+                    continue;
+                }
+            };
+
+            // Parallel pod touch with concurrency limit
+            let policy_for_filter = policy.clone();
+            futures::stream::iter(pods_to_trigger)
+                .filter_map(move |pod| {
+                    let policy = policy_for_filter.clone();
+                    async move {
+                        // Opt-in check: does this pod have the trigger annotation?
+                        if !check_trigger(
+                            &pod,
+                            &policy.spec.trigger.annotation_key,
+                            &policy.spec.trigger.annotation_values,
+                        ) {
+                            return None;
+                        }
+
+                        // Safety guardrail: does this pod match the policy's full scope?
+                        if !matches_policy(&pod, &policy) {
+                            return None;
+                        }
+
+                        Some(pod)
+                    }
+                })
+                .for_each_concurrent(Some(ctx.pod_patch_concurrency_limit), |pod| {
+                    let pod_api = pod_api.clone();
+                    let patch_params = patch_params.clone();
+                    let patch = patch.clone();
+                    let policy_name = policy_name.clone();
+
+                    async move {
+                        let pod_name = pod.name_any();
+                        let pod_ns = pod.namespace().unwrap_or_default();
+                        info!(
+                            "Triggering reconciliation for Pod {}/{} (policy: {})",
+                            pod_ns, pod_name, policy_name
+                        );
+
+                        // Touch pod to trigger Modify event in Pod controller
+                        if let Err(e) = pod_api.patch(&pod_name, &patch_params, &patch).await {
+                            warn!("Failed to 'touch' pod {}/{}: {}", pod_ns, pod_name, e);
+                        }
+                    }
+                })
+                .await;
         }
     }
 

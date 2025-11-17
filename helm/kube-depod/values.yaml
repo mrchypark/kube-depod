@@ -68,6 +68,8 @@ env:
 operator:
   # Rate limit: max deletes per minute
   rateLimit: 20
+  # Pod patch concurrency limit: max concurrent pod patch operations
+  podPatchConcurrencyLimit: 10
   # Protect system namespaces
   protectSystemNamespaces: true
   # Metrics server port

@@ -90,22 +90,39 @@ impl Default for CelEvaluator {
 }
 
 /// Build CEL context from a Pod
-/// Injects the entire Pod object for full CEL expression support
+/// Provides a clean, consistent set of CEL variables for policy evaluation:
+/// - pod: full Pod object (root variable)
+/// - metadata/spec/status: shortcut accessors for Pod fields
+/// - now: current timestamp (epoch seconds, UTC)
+/// - age: seconds since creationTimestamp
 fn build_evaluation_context(pod: &Pod) -> Result<Context<'_>> {
     let mut context = Context::default();
 
-    // Convert Pod to serde_json::Value then to cel::Value
+    // (A) Inject the entire Pod object as "pod" (root variable)
     let pod_json = json_to_value(pod)?;
     let cel_pod_value = cel::to_value(&pod_json)
         .map_err(|e| crate::Error::CelEvaluationError(e.to_string()))?;
+    let _ = context.add_variable("pod", cel_pod_value);
 
-    // Inject Pod object under multiple variable names for compatibility
-    // "object" is the standard CEL variable name for the evaluated resource
-    let _ = context.add_variable("object", cel_pod_value.clone());
-    // "self" is used in examples/cel-policy.yaml for backward compatibility
-    let _ = context.add_variable("self", cel_pod_value.clone());
+    // (B) Add shortcut accessors for Pod root fields
     
-    // "status" shortcut for direct access to status subfield
+    // "metadata" shortcut
+    if let Ok(metadata_json) = json_to_value(&pod.metadata) {
+        if let Ok(metadata_cel) = cel::to_value(&metadata_json) {
+            let _ = context.add_variable("metadata", metadata_cel);
+        }
+    }
+
+    // "spec" shortcut
+    if let Some(spec) = &pod.spec {
+        if let Ok(spec_json) = json_to_value(spec) {
+            if let Ok(spec_cel) = cel::to_value(&spec_json) {
+                let _ = context.add_variable("spec", spec_cel);
+            }
+        }
+    }
+
+    // "status" shortcut
     if let Some(status) = &pod.status {
         if let Ok(status_json) = json_to_value(status) {
             if let Ok(status_cel) = cel::to_value(&status_json) {
@@ -113,36 +130,21 @@ fn build_evaluation_context(pod: &Pod) -> Result<Context<'_>> {
             }
         }
     }
+
+    // (C) Add time variables
     
-    // "metadata" shortcut for direct access to metadata subfield
-    if let Ok(metadata_json) = json_to_value(&pod.metadata) {
-        if let Ok(metadata_cel) = cel::to_value(&metadata_json) {
-            let _ = context.add_variable("metadata", metadata_cel);
+    // "now": current timestamp in epoch seconds (UTC)
+    let now = Utc::now().timestamp();
+    let _ = context.add_variable("now", Value::Int(now));
+
+    // "age": seconds since creationTimestamp
+    if let Some(created) = pod.metadata.creation_timestamp.as_ref() {
+        let created_ts = created.0.timestamp();
+        let mut age = now - created_ts;
+        if age < 0 {
+            age = 0; // Protect against clock skew
         }
-    }
-
-    // Add convenient shortcuts for common queries
-    let creation_timestamp = pod
-        .metadata
-        .creation_timestamp
-        .as_ref()
-        .map(|t| t.0);
-
-    if let Some(created) = creation_timestamp {
-        let now = Utc::now();
-        let age_seconds = (now - created).num_seconds();
-        let _ = context.add_variable("age", Value::Int(age_seconds));
-        let _ = context.add_variable("now", Value::Int(now.timestamp()));
-    }
-
-    // Add namespace shortcut
-    if let Some(ns) = pod.metadata.namespace.as_ref() {
-        let _ = context.add_variable("namespace", Value::String(Arc::new(ns.clone())));
-    }
-
-    // Add Pod name shortcut
-    if let Some(name) = pod.metadata.name.as_ref() {
-        let _ = context.add_variable("name", Value::String(Arc::new(name.clone())));
+        let _ = context.add_variable("age", Value::Int(age));
     }
 
     Ok(context)
@@ -218,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn test_self_reference() {
+    fn test_pod_reference() {
         let evaluator = CelEvaluator::new();
         let mut pod = Pod::default();
         pod.status = Some(k8s_openapi::api::core::v1::PodStatus {
@@ -226,8 +228,8 @@ mod tests {
             ..Default::default()
         });
 
-        // Test accessing via self reference (backward compatibility)
-        let result = evaluator.evaluate("self.status.phase == 'Failed'", &pod);
+        // Test accessing via pod root variable
+        let result = evaluator.evaluate("pod.status.phase == 'Failed'", &pod);
         assert!(result.is_ok());
         assert!(result.unwrap());
     }

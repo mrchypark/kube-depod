@@ -42,7 +42,7 @@ helm upgrade kube-depod kube-depod/kube-depod
 helm uninstall kube-depod
 
 # Remove CRDs (optional, be careful as it will delete all DepodPolicy resources)
-kubectl delete crd policies.kube-depod.io
+kubectl delete crd depodpolicies.kube-depod.io
 ```
 
 ## Configuration
@@ -77,6 +77,7 @@ kubectl delete crd policies.kube-depod.io
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `operator.rateLimit` | Max deletes per minute | `20` |
+| `operator.podPatchConcurrencyLimit` | Concurrent pod patch operations during policy sync | `10` |
 | `operator.protectSystemNamespaces` | Protect system namespaces | `true` |
 | `operator.metricsPort` | Metrics server port | `8080` |
 
@@ -135,6 +136,20 @@ helm install kube-depod kube-depod/kube-depod \
   --set image.tag=latest
 ```
 
+### Install with Custom Pod Patch Concurrency Limit
+
+Pod patch concurrency limit controls how many Pod patch operations run in parallel when a policy is updated. Increase for faster policy propagation on systems with many pods, or decrease to reduce API server load:
+
+```bash
+# Faster policy propagation (20 concurrent patches)
+helm install kube-depod kube-depod/kube-depod \
+  --set operator.podPatchConcurrencyLimit=20
+
+# Lower API server load (5 concurrent patches)
+helm install kube-depod kube-depod/kube-depod \
+  --set operator.podPatchConcurrencyLimit=5
+```
+
 ## Verifying Installation
 
 ```bash
@@ -145,7 +160,7 @@ kubectl get deployment -n kube-depod kube-depod
 kubectl get pod -n kube-depod -l app.kubernetes.io/name=kube-depod
 
 # Check CRD
-kubectl get crd policies.kube-depod.io
+kubectl get crd depodpolicies.kube-depod.io
 
 # Check metrics
 kubectl port-forward -n kube-depod svc/kube-depod-metrics 8080:8080

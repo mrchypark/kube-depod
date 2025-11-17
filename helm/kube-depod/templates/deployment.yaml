@@ -38,16 +38,22 @@ spec:
           containerPort: {{ .Values.operator.metricsPort }}
           protocol: TCP
         env:
-         - name: RUST_LOG
-           value: {{ .Values.env.RUST_LOG | quote }}
-         - name: OPERATOR_POD_NAME
-           valueFrom:
-             fieldRef:
-               fieldPath: metadata.name
-         - name: RESYNC_ENABLE
-           value: {{ .Values.operator.resync.enable | quote }}
-         - name: RESYNC_INTERVAL_SECONDS
-           value: {{ .Values.operator.resync.intervalSeconds | quote }}
+        - name: RUST_LOG
+          value: {{ .Values.env.RUST_LOG | quote }}
+        - name: OPERATOR_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: RESYNC_ENABLE
+          value: {{ .Values.operator.resync.enable | quote }}
+        - name: RESYNC_INTERVAL_SECONDS
+          value: {{ .Values.operator.resync.intervalSeconds | quote }}
+        - name: RATE_LIMIT_PER_MINUTE
+          value: {{ .Values.operator.rateLimit | quote }}
+        - name: POD_PATCH_CONCURRENCY_LIMIT
+          value: {{ .Values.operator.podPatchConcurrencyLimit | quote }}
+        - name: METRICS_PORT
+          value: {{ .Values.operator.metricsPort | quote }}
         livenessProbe:
           httpGet:
             path: /health

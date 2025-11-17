@@ -129,6 +129,15 @@ The operator includes token bucket rate limiting to prevent overwhelming the Kub
 - Configurable via environment or code
 - Gracefully handles rate limit exceeding by skipping deletion but continuing to process other pods
 
+### Pod Patch Concurrency Limit
+
+When a policy is updated, the operator triggers re-evaluation of all matching Pods by patching their annotations (a "touch" operation). To prevent overwhelming the API server with concurrent requests:
+
+- Default: 10 concurrent patch operations
+- Configurable via `POD_PATCH_CONCURRENCY_LIMIT` environment variable
+- Limits parallel pod patch operations during policy reconciliation
+- Helps distribute API load when policies affect thousands of pods
+
 ## Example Policies
 
 ### Builtin TTL Policy
@@ -143,7 +152,49 @@ See `examples/cel-policy.yaml`:
 - **Old ephemeral pods**: Deletes Pods older than 30 minutes with label `ephemeral: true`
 - Both policies support dry-run mode for testing
 
-For CEL expression documentation, see `docs/CEL_EXPRESSIONS.md`
+## CEL Variables and Expressions
+
+The CEL evaluator provides a consistent set of variables for policy expressions:
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `pod` | Object | Full Pod object (root variable) |
+| `metadata` | Object | Shortcut for `pod.metadata` |
+| `spec` | Object | Shortcut for `pod.spec` |
+| `status` | Object | Shortcut for `pod.status` |
+| `now` | Int | Current timestamp (epoch seconds, UTC) |
+| `age` | Int | Seconds since pod creation (creationTimestamp) |
+
+### Example Expressions
+
+```cel
+# Phase-based cleanup
+status.phase == 'Succeeded'
+
+# Age-based cleanup (pods older than 30 minutes)
+age > 1800
+
+# Container restart count check
+status.containerStatuses.exists(c, c.restartCount > 10)
+
+# Container error state check
+status.containerStatuses.exists(c,
+  has(c.state.waiting) &&
+  c.state.waiting.reason == 'CrashLoopBackOff'
+)
+
+# Combined conditions
+status.phase == 'Failed' && age > 3600
+
+# Metadata access
+metadata.namespace == 'default' && metadata.labels['app'] == 'worker'
+```
+
+### Time Handling
+
+- `now`: Current Unix timestamp (seconds since epoch, UTC)
+- `age`: Calculated as `now - pod.metadata.creationTimestamp`, protected against clock skew (minimum 0)
+- For time comparisons, use `age > seconds` for relative age checks
 
 ## Roadmap
 

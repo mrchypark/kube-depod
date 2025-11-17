@@ -6,9 +6,15 @@
 # The periodic resync feature ensures that pods are re-evaluated at
 # regular intervals, even if there are no changes to the pod or policy.
 # This is useful for:
-# - CEL expressions that check time-based conditions
+# - CEL expressions that check time-based conditions (using 'age' variable)
 # - Cron-like cleanup schedules
 # - Ensuring periodic reconciliation without relying on watch events
+#
+# Note: These policies use the 'age' variable for time-based comparisons.
+# Available CEL variables:
+# - pod, metadata, spec, status (Pod object accessors)
+# - now (current Unix timestamp)
+# - age (seconds since pod creation)
 
 ---
 # Example 1: Time-based Cleanup Policy
@@ -69,13 +75,13 @@ spec:
     annotationValues:
       - "periodic-cleanup"
 
-  # CEL expression for completed pods
+  # CEL expression for completed pods older than 1 hour
   when:
     type: "CEL"
     expression: |
       has(status) &&
       status.phase == 'Succeeded' &&
-      (now - metadata.creationTimestamp).seconds > 3600
+      age > 3600
 
   then:
     type: "Delete"

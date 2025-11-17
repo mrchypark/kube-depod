@@ -1,0 +1,331 @@
+# Advanced CEL Policy Examples
+# Demonstrates various CEL expressions with the new context variables
+# Available variables: pod, metadata, spec, status, now, age
+
+---
+# Example 1: Age-based cleanup (TTL via CEL)
+# Delete pods older than 30 minutes
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: age-based-cleanup
+  namespace: default
+spec:
+  match:
+    namespaceSelector:
+      matchNames:
+        - default
+    podSelector:
+      matchLabels:
+        ephemeral: "true"
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "age-cleanup"
+
+  when:
+    type: "CEL"
+    expression: |
+      # Delete ephemeral pods older than 30 minutes (1800 seconds)
+      age > 1800
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 10
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 20
+    protectSystemNamespaces: true
+
+---
+# Example 2: Combined age and phase check
+# Delete completed/failed pods after a certain age
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: old-failed-pods
+  namespace: default
+spec:
+  match:
+    namespaceSelector:
+      matchNames:
+        - default
+
+  trigger:
+    annotationKey: "kube-depod/cleanup"
+    annotationValues:
+      - "old-failed"
+
+  when:
+    type: "CEL"
+    expression: |
+      # Delete Failed or Succeeded pods older than 2 hours
+      (status.phase == 'Failed' || status.phase == 'Succeeded') &&
+      age > 7200
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 30
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 15
+    protectSystemNamespaces: true
+
+---
+# Example 3: Metadata-based filtering with pod.name and pod.namespace
+# Delete pods in specific namespace with specific name pattern
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: namespace-based-cleanup
+  namespace: default
+spec:
+  match:
+    namespaceSelector:
+      matchNames:
+        - default
+        - test
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "namespace-cleanup"
+
+  when:
+    type: "CEL"
+    expression: |
+      # Access metadata directly (shortcut variables)
+      # Delete pods in test namespace that are older than 1 hour
+      metadata.namespace == 'test' &&
+      age > 3600
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 0
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 25
+    protectSystemNamespaces: true
+
+---
+# Example 4: Container-level checks with metadata labels
+# Delete pods with specific labels that have container errors
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: labeled-container-errors
+  namespace: default
+spec:
+  match:
+    namespaceSelector:
+      matchNames:
+        - default
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "cleanup-errors"
+
+  when:
+    type: "CEL"
+    expression: |
+      # Delete pods with app=worker label that have CrashLoopBackOff
+      metadata.labels['app'] == 'worker' &&
+      status.containerStatuses.exists(c,
+        has(c.state.waiting) &&
+        c.state.waiting.reason == 'CrashLoopBackOff'
+      )
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 15
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 10
+    protectSystemNamespaces: true
+
+---
+# Example 5: Multiple condition checks
+# Complex policy with age, phase, and container status checks
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: complex-cleanup-policy
+  namespace: default
+spec:
+  match:
+    namespaceSelector:
+      matchNames:
+        - default
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "complex-cleanup"
+
+  when:
+    type: "CEL"
+    expression: |
+      # Delete pods that:
+      # 1. Are older than 5 minutes, AND
+      # 2. Have Failed phase OR ImagePullBackOff, AND
+      # 3. Are not in prod namespace
+      age > 300 &&
+      (
+        status.phase == 'Failed' ||
+        (status.containerStatuses.exists(c,
+          has(c.state.waiting) &&
+          c.state.waiting.reason == 'ImagePullBackOff'
+        ))
+      ) &&
+      metadata.namespace != 'prod'
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 20
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 12
+    protectSystemNamespaces: true
+
+---
+# Example 6: Time-based evaluation with now variable
+# Delete pods created at specific times (e.g., test pods from last night)
+# Note: This requires periodic resync to work reliably
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: time-window-cleanup
+  namespace: default
+spec:
+  match:
+    namespaceSelector:
+      matchNames:
+        - default
+    podSelector:
+      matchLabels:
+        type: test
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "test-cleanup"
+
+  when:
+    type: "CEL"
+    expression: |
+      # Delete test pods older than 6 hours
+      # This works best with periodic resync enabled
+      metadata.labels['type'] == 'test' &&
+      age > 21600  # 6 hours = 6 * 3600 seconds
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 5
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 30
+    protectSystemNamespaces: true
+
+---
+# Example Pods for testing
+
+---
+# Test pod: Ephemeral, for age-based cleanup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ephemeral-task-1
+  namespace: default
+  labels:
+    ephemeral: "true"
+    app: task-runner
+  annotations:
+    kube-depod/policy: "age-cleanup"
+spec:
+  containers:
+  - name: task
+    image: busybox:latest
+    command: ["sleep", "3600"]
+  restartPolicy: Never
+
+---
+# Test pod: Failed job, for old-failed-pods cleanup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: batch-job-failed
+  namespace: default
+  labels:
+    app: batch
+    type: job
+  annotations:
+    kube-depod/cleanup: "old-failed"
+spec:
+  containers:
+  - name: processor
+    image: busybox:latest
+    command: ["sh", "-c", "exit 1"]
+  restartPolicy: Never
+
+---
+# Test pod: In test namespace, for namespace-based cleanup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-cleanup
+  namespace: test
+  labels:
+    env: test
+  annotations:
+    kube-depod/policy: "namespace-cleanup"
+spec:
+  containers:
+  - name: test
+    image: busybox:latest
+    command: ["sleep", "3600"]
+  restartPolicy: Never
+
+---
+# Test pod: With labels for container error cleanup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: worker-with-error
+  namespace: default
+  labels:
+    app: worker
+    tier: backend
+  annotations:
+    kube-depod/policy: "cleanup-errors"
+spec:
+  containers:
+  - name: worker
+    image: nonexistent:latest
+  restartPolicy: Always
+
+---
+# Test pod: For test pod cleanup (time-window)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-runner
+  namespace: default
+  labels:
+    type: test
+    app: test-suite
+  annotations:
+    kube-depod/policy: "test-cleanup"
+spec:
+  containers:
+  - name: runner
+    image: busybox:latest
+    command: ["sleep", "1800"]
+  restartPolicy: Never

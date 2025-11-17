@@ -90,21 +90,21 @@ spec:
                       default: false
                       description: Dry-run mode (no actual deletion)
                 limits:
-                   type: object
-                   properties:
-                     maxDeletesPerMinute:
-                       type: integer
-                       description: Max pods to delete per minute
-                     protectSystemNamespaces:
-                       type: boolean
-                       default: true
-                       description: Protect system namespaces
-                     excludedNamespaces:
-                       type: array
-                       items:
-                         type: string
-                       description: List of namespaces to exclude from deletion
-                additionalPrinterColumns:
+                  type: object
+                  properties:
+                    maxDeletesPerMinute:
+                      type: integer
+                      description: Max pods to delete per minute
+                    protectSystemNamespaces:
+                      type: boolean
+                      default: true
+                      description: Protect system namespaces
+                    excludedNamespaces:
+                      type: array
+                      items:
+                        type: string
+                      description: List of namespaces to exclude from deletion
+      additionalPrinterColumns:
         - jsonPath: .spec.when.type
           name: Condition Type
           type: string

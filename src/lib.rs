@@ -9,6 +9,7 @@ pub mod server;
 pub use error::{Error, Result};
 
 // Shared context for the operator
+use arc_swap::ArcSwap;
 use crd::DepodPolicy;
 use engine::CelEvaluator;
 use kube::Client;
@@ -16,20 +17,24 @@ use metrics::Metrics;
 use rate_limiter::RateLimiter;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct Context {
     pub client: Client,
     pub metrics: Arc<Metrics>,
     pub evaluator: Arc<CelEvaluator>,
-    pub policies: Arc<RwLock<Vec<DepodPolicy>>>,
+    /// Lock-free policy cache using ArcSwap
+    /// Enables concurrent reads without blocking writes (no RwLock contention)
+    pub policies: Arc<ArcSwap<Vec<DepodPolicy>>>,
     pub rate_limiter: Arc<RateLimiter>,
     pub operator_pod_name: Arc<String>,
     /// Periodic resync interval for cron check feature
     /// Some(Duration) = enabled with specified interval
     /// None = disabled
     pub periodic_resync_interval: Option<Duration>,
+    /// Concurrency limit for pod patch operations
+    /// Limits parallel API requests to protect API server when touching pods
+    pub pod_patch_concurrency_limit: usize,
 }
 
 #[cfg(test)]
@@ -100,7 +105,7 @@ mod tests {
 
     #[test]
     fn test_policy_validation_cel_missing_expression() {
-        let mut spec = DepodPolicySpec {
+        let spec = DepodPolicySpec {
             match_: Match {
                 namespace_selector: None,
                 pod_selector: None,
@@ -126,11 +131,8 @@ mod tests {
             },
         };
 
-        assert!(spec.validate().is_err());
-        assert!(spec
-            .validate()
-            .unwrap_err()
-            .contains("when.expression required"));
+        let err = spec.validate().unwrap_err();
+        assert!(err.contains("when.expression required"));
     }
 
     #[test]
@@ -161,11 +163,8 @@ mod tests {
             },
         };
 
-        assert!(spec.validate().is_err());
-        assert!(spec
-            .validate()
-            .unwrap_err()
-            .contains("when.ttlSeconds must not be set for CEL type"));
+        let err = spec.validate().unwrap_err();
+        assert!(err.contains("when.ttlSeconds must not be set for CEL type"));
     }
 
     #[test]
@@ -196,11 +195,8 @@ mod tests {
             },
         };
 
-        assert!(spec.validate().is_err());
-        assert!(spec
-            .validate()
-            .unwrap_err()
-            .contains("when.ttlSeconds required"));
+        let err = spec.validate().unwrap_err();
+        assert!(err.contains("when.ttlSeconds required"));
     }
 
     #[test]
@@ -231,11 +227,8 @@ mod tests {
             },
         };
 
-        assert!(spec.validate().is_err());
-        assert!(spec
-            .validate()
-            .unwrap_err()
-            .contains("when.expression must not be set for Builtin type"));
+        let err = spec.validate().unwrap_err();
+        assert!(err.contains("when.expression must not be set for Builtin type"));
     }
 
     #[test]
@@ -266,11 +259,8 @@ mod tests {
             },
         };
 
-        assert!(spec.validate().is_err());
-        assert!(spec
-            .validate()
-            .unwrap_err()
-            .contains("when.ttlSeconds must be a positive integer"));
+        let err = spec.validate().unwrap_err();
+        assert!(err.contains("when.ttlSeconds must be a positive integer"));
     }
 
     #[test]
@@ -301,11 +291,8 @@ mod tests {
             },
         };
 
-        assert!(spec.validate().is_err());
-        assert!(spec
-            .validate()
-            .unwrap_err()
-            .contains("unsupported action type"));
+        let err = spec.validate().unwrap_err();
+        assert!(err.contains("unsupported action type"));
     }
 
     #[test]
@@ -336,10 +323,7 @@ mod tests {
             },
         };
 
-        assert!(spec.validate().is_err());
-        assert!(spec
-            .validate()
-            .unwrap_err()
-            .contains("unsupported condition type"));
+        let err = spec.validate().unwrap_err();
+        assert!(err.contains("unsupported condition type"));
     }
 }

@@ -238,16 +238,16 @@ fn test_cel_complex_ready_condition_check() {
         ..Default::default()
     });
 
-    // Expression from examples/cel-policy.yaml - Policy 1
+    // Expression - Policy for ready condition and terminated state
     let expr = r#"(
-        has(self.status.conditions) &&
-        self.status.conditions.exists(cond,
+        has(pod.status.conditions) &&
+        pod.status.conditions.exists(cond,
             cond.type == 'Ready' && cond.status == 'False'
         )
     ) &&
     (
-        has(self.status.containerStatuses) &&
-        self.status.containerStatuses.exists(c,
+        has(pod.status.containerStatuses) &&
+        pod.status.containerStatuses.exists(c,
             c.ready == false &&
             c.restartCount > 0 &&
             has(c.state.terminated) &&
@@ -286,40 +286,34 @@ fn test_cel_multi_condition_or_logic() {
 }
 
 #[test]
-fn test_cel_self_vs_object_reference() {
-    let evaluator = CelEvaluator::new();
-    let pod = create_pod_with_phase("default", "test-pod", "Pending");
+fn test_cel_pod_reference() {
+let evaluator = CelEvaluator::new();
+let pod = create_pod_with_phase("default", "test-pod", "Pending");
 
-    // Test "self" reference (backward compatibility with examples)
-    let expr_self = "self.status.phase == 'Pending'";
-    let result_self = evaluator.evaluate(expr_self, &pod);
-    assert!(result_self.is_ok());
-    assert!(result_self.unwrap());
-
-    // Test "object" reference (standard CEL)
-    let expr_object = "object.status.phase == 'Pending'";
-    let result_object = evaluator.evaluate(expr_object, &pod);
-    assert!(result_object.is_ok());
-    assert!(result_object.unwrap());
+// Test "pod" root variable access
+let expr_pod = "pod.status.phase == 'Pending'";
+let result_pod = evaluator.evaluate(expr_pod, &pod);
+assert!(result_pod.is_ok());
+assert!(result_pod.unwrap());
 }
 
 #[test]
-fn test_cel_namespace_shortcut() {
+fn test_cel_metadata_namespace_access() {
     let evaluator = CelEvaluator::new();
     let pod = create_pod_with_phase("production", "prod-pod", "Running");
 
-    let expr = "namespace == 'production'";
+    let expr = "metadata.namespace == 'production'";
     let result = evaluator.evaluate(expr, &pod);
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
 
 #[test]
-fn test_cel_pod_name_shortcut() {
+fn test_cel_metadata_name_access() {
     let evaluator = CelEvaluator::new();
     let pod = create_pod_with_phase("default", "my-app-123", "Running");
 
-    let expr = "name == 'my-app-123'";
+    let expr = "metadata.name == 'my-app-123'";
     let result = evaluator.evaluate(expr, &pod);
     assert!(result.is_ok());
     assert!(result.unwrap());
@@ -387,6 +381,21 @@ fn test_cel_no_container_statuses() {
 }
 
 #[test]
+fn test_has_status() {
+    let evaluator = CelEvaluator::new();
+    let mut pod = Pod::default();
+    pod.status = Some(PodStatus {
+        phase: Some("Succeeded".to_string()),
+        ..Default::default()
+    });
+
+    // Test has(status.phase) && status.phase == 'Succeeded'
+    let result = evaluator.evaluate("has(status.phase) && status.phase == 'Succeeded'", &pod);
+    assert!(result.is_ok());
+    assert!(result.unwrap(), "Should detect Succeeded phase");
+}
+
+#[test]
 fn test_cel_metadata_access() {
     let evaluator = CelEvaluator::new();
     let mut pod = Pod::default();
@@ -402,8 +411,8 @@ fn test_cel_metadata_access() {
     assert!(result.is_ok());
     assert!(result.unwrap());
 
-    // Access via object.metadata
-    let expr2 = "object.metadata.namespace == 'test-ns'";
+    // Access via pod.metadata
+    let expr2 = "pod.metadata.namespace == 'test-ns'";
     let result2 = evaluator.evaluate(expr2, &pod);
     assert!(result2.is_ok());
     assert!(result2.unwrap());

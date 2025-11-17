@@ -1,4 +1,6 @@
 # TTL-based Pod cleanup policy example
+# This policy demonstrates the Builtin TTL condition type.
+# For CEL-based age checks, see cel-policy.yaml or advanced-cel-examples.yaml
 apiVersion: kube-depod.io/v1alpha1
 kind: DepodPolicy
 metadata:
