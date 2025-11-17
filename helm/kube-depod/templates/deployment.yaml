@@ -35,7 +35,7 @@ spec:
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
         - name: metrics
-          containerPort: {{ .Values.operator.metricsPort }}
+          containerPort: {{ .Values.operator.serverPort }}
           protocol: TCP
         env:
         - name: RUST_LOG
@@ -52,8 +52,8 @@ spec:
           value: {{ .Values.operator.rateLimit | quote }}
         - name: POD_PATCH_CONCURRENCY_LIMIT
           value: {{ .Values.operator.podPatchConcurrencyLimit | quote }}
-        - name: METRICS_PORT
-          value: {{ .Values.operator.metricsPort | quote }}
+        - name: SERVER_PORT
+          value: {{ .Values.operator.serverPort | quote }}
         livenessProbe:
           httpGet:
             path: /health

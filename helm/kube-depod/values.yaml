@@ -72,12 +72,19 @@ operator:
   podPatchConcurrencyLimit: 10
   # Protect system namespaces
   protectSystemNamespaces: true
-  # Metrics server port
-  metricsPort: 8080
+  # Server port
+  serverPort: 8080
   # Periodic Resync (Cron Check)
   resync:
     enable: true
     intervalSeconds: 3600
+
+# Service configuration
+service:
+  # Whether to create a Service resource
+  enabled: true
+  # Service port (exposed by the Service, targetPort will use operator.serverPort)
+  port: 8080
 
 # CRD installation (Helm will auto-install CRDs from crds/ directory)
 crds:

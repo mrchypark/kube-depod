@@ -3,7 +3,7 @@ use crate::{Context, Result};
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::api::policy::v1::Eviction;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::{DeleteOptions, ObjectMeta};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{DeleteOptions, ObjectMeta, Status};
 use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube::runtime::controller::Action;
 use kube::{Client, ResourceExt};
@@ -392,18 +392,39 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         }),
                     };
 
-                    // Create the eviction request using Policy API v1
-                    // This respects Pod Disruption Budgets (PDBs) unlike direct deletion
-                    let api: Api<Eviction> = Api::all(ctx.client.clone());
+                    // Use Pod subresource for eviction to respect Pod Disruption Budgets (PDBs)
+                    // This is the correct way to invoke the eviction API in Kubernetes
+                    let pods: Api<Pod> = Api::namespaced(ctx.client.clone(), &pod_ns);
+                    let eviction_bytes = serde_json::to_vec(&eviction)?;
 
-                    match api.create(&PostParams::default(), &eviction).await {
-                        Ok(_) => {
-                            info!(
-                                "Successfully evicted pod {}/{} (respects PDB)",
-                                pod_ns, pod_name
-                            );
-                            ctx.metrics.increment_pods_deleted();
-                            return Ok(Action::await_change());
+                    match pods
+                        .create_subresource::<Status>("eviction", &pod_name, &PostParams::default(), eviction_bytes)
+                        .await
+                    {
+                        Ok(status) => {
+                            if let Some(ref status_str) = status.status {
+                                if status_str == "Success" {
+                                    info!(
+                                        "Successfully evicted pod {}/{} (respects PDB)",
+                                        pod_ns, pod_name
+                                    );
+                                    ctx.metrics.increment_pods_deleted();
+                                    return Ok(Action::await_change());
+                                } else {
+                                    warn!(
+                                        "Eviction of pod {}/{} returned non-success status: {}",
+                                        pod_ns, pod_name, status_str
+                                    );
+                                    ctx.metrics.increment_evaluation_errors();
+                                }
+                            } else {
+                                info!(
+                                    "Successfully evicted pod {}/{} (respects PDB)",
+                                    pod_ns, pod_name
+                                );
+                                ctx.metrics.increment_pods_deleted();
+                                return Ok(Action::await_change());
+                            }
                         }
                         Err(e) => {
                             // If eviction fails (e.g., due to PDB), log as warning

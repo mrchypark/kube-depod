@@ -79,7 +79,14 @@ kubectl delete crd depodpolicies.kube-depod.io
 | `operator.rateLimit` | Max deletes per minute | `20` |
 | `operator.podPatchConcurrencyLimit` | Concurrent pod patch operations during policy sync | `10` |
 | `operator.protectSystemNamespaces` | Protect system namespaces | `true` |
-| `operator.metricsPort` | Metrics server port | `8080` |
+| `operator.serverPort` | Server port (container port) | `8080` |
+
+### Service Configuration
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `service.enabled` | Create a Service resource | `true` |
+| `service.port` | Service port (exposed by the Service) | `8080` |
 
 ### Pod Configuration
 

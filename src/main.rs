@@ -5,6 +5,7 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::runtime::controller::Controller;
 use kube::runtime::watcher::Config;
 use kube::{Api, Client};
+use kube_depod::config::Config as OpConfig;
 use kube_depod::controller::{
     error_policy_pod, error_policy_policy, load_policies, reconcile_pod, reconcile_policy,
 };
@@ -15,7 +16,6 @@ use kube_depod::rate_limiter::RateLimiter;
 use kube_depod::server::start_server;
 use kube_depod::Context;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::info;
 
@@ -30,67 +30,24 @@ async fn main() -> Result<()> {
     let client = Client::try_default().await?;
     info!("Connected to Kubernetes cluster");
 
-    // Read operator Pod name from Downward API environment variable
-    let operator_pod_name = std::env::var("OPERATOR_POD_NAME")
-        .unwrap_or_else(|_| "kube-depod-unknown".to_string());
-    info!("Operator Pod Name: {}", operator_pod_name);
-
-    // Load periodic resync (cron check) configuration
-    let periodic_resync_interval = if std::env::var("RESYNC_ENABLE")
-        .unwrap_or_else(|_| "true".to_string())
-        .eq_ignore_ascii_case("true")
-    {
-        let interval_seconds = std::env::var("RESYNC_INTERVAL_SECONDS")
-            .unwrap_or_else(|_| "3600".to_string())
-            .parse::<u64>()
-            .unwrap_or(3600);
-
-        info!(
-            "Periodic Resync (Cron Check) enabled. Interval: {} seconds",
-            interval_seconds
-        );
-        Some(Duration::from_secs(interval_seconds))
-    } else {
-        info!("Periodic Resync (Cron Check) is disabled.");
-        None
-    };
+    // Load configuration from environment variables
+    let config = OpConfig::from_env();
 
     // Create metrics instance
     let metrics = Arc::new(Metrics::new());
     let metrics_clone = metrics.clone();
 
-    // Read rate limit from environment variable (default: 20)
-    let rate_limit_per_minute = std::env::var("RATE_LIMIT_PER_MINUTE")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(20);
-    info!("Rate limit configured: {} deletes per minute", rate_limit_per_minute);
-    let rate_limiter = Arc::new(RateLimiter::new(rate_limit_per_minute));
-
-    // Read pod patch concurrency limit from environment variable (default: 10)
-    let pod_patch_concurrency_limit = std::env::var("POD_PATCH_CONCURRENCY_LIMIT")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(10);
-    info!(
-        "Pod patch concurrency limit configured: {} concurrent patch operations",
-        pod_patch_concurrency_limit
-    );
-
-    // Read metrics port from environment variable (default: 8080)
-    let metrics_port = std::env::var("METRICS_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(8080);
-    info!("Metrics server port configured: {}", metrics_port);
+    // Create rate limiter from config
+    let rate_limiter = Arc::new(RateLimiter::new(config.rate_limit_per_minute));
 
     // Create shutdown broadcast channel
     let (shutdown_tx, _) = broadcast::channel(1);
 
     // Start metrics HTTP server in background task
     let shutdown_tx_metrics = shutdown_tx.clone();
+    let server_port = config.server_port;
     tokio::spawn(async move {
-        if let Err(e) = start_server(metrics_clone, metrics_port, shutdown_tx_metrics.subscribe()).await {
+        if let Err(e) = start_server(metrics_clone, server_port, shutdown_tx_metrics.subscribe()).await {
             tracing::error!("Metrics server error: {}", e);
         }
     });
@@ -110,16 +67,16 @@ async fn main() -> Result<()> {
     // Shared state for policies using ArcSwap (lock-free)
     let policies = Arc::new(ArcSwap::new(Arc::new(initial_policies)));
 
-    // Create Context for shared state
+    // Create Context for shared state from config
     let ctx = Arc::new(Context {
         client: client.clone(),
         metrics: metrics.clone(),
         evaluator: Arc::new(CelEvaluator::new()),
         policies,
         rate_limiter,
-        operator_pod_name: Arc::new(operator_pod_name),
-        periodic_resync_interval,
-        pod_patch_concurrency_limit,
+        operator_pod_name: Arc::new(config.operator_pod_name.clone()),
+        periodic_resync_interval: config.periodic_resync_interval,
+        pod_patch_concurrency_limit: config.pod_patch_concurrency_limit,
     });
 
     // Graceful shutdown handler

@@ -1,3 +1,4 @@
+{{- if .Values.service.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,9 +8,10 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 8080
-      targetPort: metrics
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.operator.serverPort }}
       protocol: TCP
       name: metrics
   selector:
     {{- include "kube-depod.selectorLabels" . | nindent 4 }}
+{{- end }}
