@@ -108,7 +108,7 @@ fn test_cel_crashloop_detection() {
         c.restartCount >= 5
     )"#;
 
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok(), "CEL evaluation failed: {:?}", result);
     assert!(result.unwrap(), "Should detect CrashLoopBackOff pod");
 }
@@ -128,13 +128,13 @@ fn test_cel_image_pull_backoff_detection() {
         )
     )"#;
 
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap(), "Should detect ImagePullBackOff pod");
 
     // Test ErrImagePull
     let pod2 = create_imagepull_backoff_pod("default", "image-err", "ErrImagePull");
-    let result2 = evaluator.evaluate(expr, &pod2);
+    let result2 = evaluator.evaluate(expr, &pod2, "test-policy");
     assert!(result2.is_ok());
     assert!(result2.unwrap(), "Should detect ErrImagePull pod");
 }
@@ -147,7 +147,7 @@ fn test_cel_succeeded_phase_detection() {
     // Expression from examples/cel-policy.yaml - Policy 7
     let expr = "status.phase == 'Succeeded'";
 
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap(), "Should detect Succeeded pod");
 }
@@ -159,7 +159,7 @@ fn test_cel_failed_phase_detection() {
 
     let expr = "status.phase == 'Failed'";
 
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap(), "Should detect Failed pod");
 }
@@ -172,13 +172,13 @@ fn test_cel_pod_age_threshold() {
     let old_pod = create_pod_with_age("default", "old-pod", 1800 + 100);
 
     let expr = "age > 1800";
-    let result = evaluator.evaluate(expr, &old_pod);
+    let result = evaluator.evaluate(expr, &old_pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap(), "Should detect old pod (>30min)");
 
     // Pod younger than 30 minutes
     let young_pod = create_pod_with_age("default", "young-pod", 600);
-    let result = evaluator.evaluate(expr, &young_pod);
+    let result = evaluator.evaluate(expr, &young_pod, "test-policy");
     assert!(result.is_ok());
     assert!(!result.unwrap(), "Should not match young pod (<30min)");
 }
@@ -194,7 +194,7 @@ fn test_cel_high_restart_count() {
         c.ready == false
     )"#;
 
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap(), "Should detect pod with high restart count");
 }
@@ -255,7 +255,7 @@ fn test_cel_complex_ready_condition_check() {
         )
     )"#;
 
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok(), "CEL evaluation failed: {:?}", result);
     assert!(result.unwrap(), "Should detect completed pod with Failed status");
 }
@@ -280,7 +280,7 @@ fn test_cel_multi_condition_or_logic() {
         status.containerStatuses.all(c, c.ready == false)
     )"#;
 
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap(), "Should match CrashLoopBackOff OR ImagePullBackOff AND all not ready");
 }
@@ -292,7 +292,7 @@ let pod = create_pod_with_phase("default", "test-pod", "Pending");
 
 // Test "pod" root variable access
 let expr_pod = "pod.status.phase == 'Pending'";
-let result_pod = evaluator.evaluate(expr_pod, &pod);
+let result_pod = evaluator.evaluate(expr_pod, &pod, "test-policy");
 assert!(result_pod.is_ok());
 assert!(result_pod.unwrap());
 }
@@ -303,7 +303,7 @@ fn test_cel_metadata_namespace_access() {
     let pod = create_pod_with_phase("production", "prod-pod", "Running");
 
     let expr = "metadata.namespace == 'production'";
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
@@ -314,7 +314,7 @@ fn test_cel_metadata_name_access() {
     let pod = create_pod_with_phase("default", "my-app-123", "Running");
 
     let expr = "metadata.name == 'my-app-123'";
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
@@ -327,20 +327,20 @@ fn test_cel_expression_caching() {
     let expr = "status.containerStatuses.exists(c, c.restartCount > 3)";
 
     // First evaluation - compiles expression
-    let result1 = evaluator.evaluate(expr, &pod);
+    let result1 = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result1.is_ok());
     let cache_size_1 = evaluator.cache_size();
     assert_eq!(cache_size_1, 1, "Cache should contain 1 compiled expression");
 
     // Second evaluation - uses cached expression
-    let result2 = evaluator.evaluate(expr, &pod);
+    let result2 = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result2.is_ok());
     let cache_size_2 = evaluator.cache_size();
     assert_eq!(cache_size_2, 1, "Cache size should remain 1");
 
     // Different expression
     let expr2 = "status.phase == 'Running'";
-    let result3 = evaluator.evaluate(expr2, &pod);
+    let result3 = evaluator.evaluate(expr2, &pod, "test-policy");
     assert!(result3.is_ok());
     let cache_size_3 = evaluator.cache_size();
     assert_eq!(cache_size_3, 2, "Cache should now contain 2 expressions");
@@ -353,7 +353,7 @@ fn test_cel_invalid_expression_error() {
 
     // Invalid CEL syntax
     let invalid_expr = "this is not valid cel syntax !!!";
-    let result = evaluator.evaluate(invalid_expr, &pod);
+    let result = evaluator.evaluate(invalid_expr, &pod, "test-policy");
     assert!(result.is_err(), "Should fail on invalid expression");
 }
 
@@ -364,7 +364,7 @@ fn test_cel_syntax_error_compilation() {
 
     // Incomplete expression
     let invalid_expr = "status.phase ==";
-    let result = evaluator.evaluate(invalid_expr, &pod);
+    let result = evaluator.evaluate(invalid_expr, &pod, "test-policy");
     assert!(result.is_err(), "Should fail on syntax error");
 }
 
@@ -375,7 +375,7 @@ fn test_cel_no_container_statuses() {
 
     // Expression should safely handle missing containerStatuses
     let expr = "has(status.containerStatuses) && status.containerStatuses.size() > 0";
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(!result.unwrap(), "Should return false when no container statuses");
 }
@@ -390,7 +390,7 @@ fn test_has_status() {
     });
 
     // Test has(status.phase) && status.phase == 'Succeeded'
-    let result = evaluator.evaluate("has(status.phase) && status.phase == 'Succeeded'", &pod);
+    let result = evaluator.evaluate("has(status.phase) && status.phase == 'Succeeded'", &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap(), "Should detect Succeeded phase");
 }
@@ -407,13 +407,13 @@ fn test_cel_metadata_access() {
 
     // Access via metadata shortcut
     let expr = "metadata.name == 'test-pod'";
-    let result = evaluator.evaluate(expr, &pod);
+    let result = evaluator.evaluate(expr, &pod, "test-policy");
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     // Access via pod.metadata
     let expr2 = "pod.metadata.namespace == 'test-ns'";
-    let result2 = evaluator.evaluate(expr2, &pod);
+    let result2 = evaluator.evaluate(expr2, &pod, "test-policy");
     assert!(result2.is_ok());
     assert!(result2.unwrap());
 }
