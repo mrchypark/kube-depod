@@ -149,7 +149,7 @@ spec:
   when:
     type: "CEL"
     expression: |
-      has(status.phase) &&
+      has(status) &&
       status.phase == 'Succeeded'
 
   then:
