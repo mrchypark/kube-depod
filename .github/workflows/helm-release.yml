@@ -49,6 +49,7 @@ jobs:
             helm repo index ./charts \
               --url https://mrchypark.github.io/kube-depod
           fi
+          rm ./charts/index.yaml.old
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
