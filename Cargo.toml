@@ -4,23 +4,23 @@ version = "0.1.2"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-kube = { version = "0.89", features = ["runtime", "derive"] }
-k8s-openapi = { version = "0.21", features = ["v1_28"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+tokio = { version = "1.48", features = ["full"] }
+kube = { version = "2.0", features = ["runtime", "derive"] }
+k8s-openapi = { version = "0.26", features = ["v1_30"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-anyhow = "1"
-thiserror = "1"
+anyhow = "1.0"
+thiserror = "2.0"
 futures = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
-schemars = "0.8"
-axum = "0.7"
-hyper = "1"
+schemars = "1.0"
+axum = "0.8"
+hyper = "1.7"
 cel = "0.11"
-dashmap = "5.5"
-arc-swap = "1"
+dashmap = "6.1"
+arc-swap = "1.7"
 
 [[bin]]
 name = "operator"
