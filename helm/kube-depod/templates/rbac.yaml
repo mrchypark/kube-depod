@@ -11,15 +11,10 @@ rules:
     resources: ["depodpolicies"]
     verbs: ["get", "list", "watch"]
 
-  # Read Pods
+  # Read/Patch/Delete Pods
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch"]
-
-  # Delete Pods
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["delete", "deletecollection"]
+    verbs: ["get", "list", "watch", "patch", "delete", "deletecollection"]
 
   # Create pod eviction subresource (for future use)
   - apiGroups: [""]

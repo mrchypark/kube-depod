@@ -82,9 +82,9 @@ spec:
                        type: string
                        enum: ["Delete", "Evict"]
                        description: Action type
-                     graceSeconds:
+                     gracePeriodSeconds:
                        type: integer
-                       description: Grace period for deletion
+                       description: Grace period for deletion in seconds
                      dryRun:
                        type: boolean
                        default: false
@@ -99,6 +99,11 @@ spec:
                        type: boolean
                        default: true
                        description: Protect system namespaces
+                     excludedNamespaces:
+                       type: array
+                       items:
+                         type: string
+                       description: List of namespaces to exclude from deletion
       additionalPrinterColumns:
          - jsonPath: .spec.when.type
            name: Condition Type

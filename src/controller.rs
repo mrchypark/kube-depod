@@ -385,27 +385,6 @@ pub async fn reconcile_pod_with_evaluator(
     Ok(result)
 }
 
-/// Wrapper for backward compatibility (without CEL evaluator)
-pub async fn reconcile_pod(
-    pod: Pod,
-    policies: &[DepodPolicy],
-    client: &Client,
-) -> Result<ReconcileResult> {
-    let evaluator = Arc::new(CelEvaluator::new());
-    reconcile_pod_with_evaluator(pod, policies, client, evaluator, None).await
-}
-
-/// Wrapper with rate limiter support
-pub async fn reconcile_pod_with_rate_limit(
-    pod: Pod,
-    policies: &[DepodPolicy],
-    client: &Client,
-    rate_limiter: Arc<RateLimiter>,
-) -> Result<ReconcileResult> {
-    let evaluator = Arc::new(CelEvaluator::new());
-    reconcile_pod_with_evaluator(pod, policies, client, evaluator, Some(rate_limiter)).await
-}
-
 /// Load all policy rules
 pub async fn load_policies(client: &Client) -> Result<Vec<DepodPolicy>> {
     let api: Api<DepodPolicy> = Api::all(client.clone());
@@ -417,8 +396,8 @@ pub async fn load_policies(client: &Client) -> Result<Vec<DepodPolicy>> {
     Ok(policies.items)
 }
 
-/// New reconcile function for kube-rs Controller framework
-pub async fn reconcile(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
+/// New reconcile function for kube-rs Controller framework (Pod-specific)
+pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
     let pod_name = pod.name_any();
     let pod_ns = pod.namespace().unwrap_or_default();
 
@@ -715,20 +694,131 @@ pub async fn reconcile(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
 
     // Determine what action to return
     if let Some(ttl_seconds) = ttl_requeue_seconds {
+        // TTL expiration is the closest event, requeue based on TTL
         debug!(
             "Pod {}/{} will be re-evaluated in {}s when TTL expires",
             pod_ns, pod_name, ttl_seconds
         );
         Ok(Action::requeue(Duration::from_secs(ttl_seconds)))
+    } else if let Some(interval) = ctx.periodic_resync_interval {
+        // No TTL pending, but cron check is enabled - schedule periodic resync
+        debug!(
+            "Pod {}/{} reconciled, scheduling periodic resync in {:?}",
+            pod_ns, pod_name, interval
+        );
+        Ok(Action::requeue(interval))
     } else {
+        // No TTL pending and cron check disabled - wait for changes
         debug!("Pod {}/{} reconciled, waiting for changes", pod_ns, pod_name);
         Ok(Action::await_change())
     }
 }
 
-/// Error policy for reconciliation failures
-pub fn error_policy(pod: Arc<Pod>, error: &crate::Error, _ctx: Arc<Context>) -> Action {
+/// Error policy for reconciliation failures (Pod-specific)
+pub fn error_policy_pod(pod: Arc<Pod>, error: &crate::Error, _ctx: Arc<Context>) -> Action {
     warn!("Reconciliation error for pod {}: {}", pod.name_any(), error);
     // Note: cannot await metrics increment here since this is a sync function
     Action::requeue(Duration::from_secs(60))
+}
+
+/// DepodPolicy controller error handler
+pub fn error_policy_policy(_policy: Arc<DepodPolicy>, error: &crate::Error, _ctx: Arc<Context>) -> Action {
+    warn!("Policy reconciliation error: {}", error);
+    Action::requeue(Duration::from_secs(60))
+}
+
+/// DepodPolicy reconcile function - updates policy cache and triggers pod re-evaluation
+pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Result<Action> {
+    use kube::api::{Patch, PatchParams};
+    use serde_json::json;
+
+    let policy_name = policy.name_any();
+    info!(
+        "Policy {} changed or detected, updating cache and re-triggering pods",
+        policy_name
+    );
+
+    // --- 1. Reload entire policy cache ---
+    match load_policies(&ctx.client).await {
+        Ok(all_policies) => {
+            *ctx.policies.write().await = all_policies;
+            info!("Policy cache refreshed due to {} change", policy_name);
+        }
+        Err(e) => {
+            warn!("Failed to reload policies cache: {}", e);
+            return Ok(Action::requeue(Duration::from_secs(5)));
+        }
+    }
+
+    // --- 2. Find and touch all matching pods ---
+    let pod_api: Api<Pod> = Api::all(ctx.client.clone());
+
+    // Build label selector from pod_selector
+    let mut lp = ListParams::default();
+    if let Some(pod_selector) = &policy.spec.match_.pod_selector {
+        let labels = pod_selector
+            .match_labels
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join(",");
+        if !labels.is_empty() {
+            lp = lp.labels(&labels);
+        }
+    }
+
+    let pods_to_trigger = match pod_api.list(&lp).await {
+        Ok(pods) => pods,
+        Err(e) => {
+            warn!("Failed to list pods for policy {}: {}", policy_name, e);
+            return Ok(Action::requeue(Duration::from_secs(60)));
+        }
+    };
+
+    // Patch pods to trigger reconciliation
+    let patch_params = PatchParams::default();
+    let patch = Patch::Merge(json!({
+        "metadata": {
+            "annotations": {
+                "kube-depod/reconcile-trigger-by": ctx.operator_pod_name.as_str(),
+                "kube-depod/reconcile-trigger-by-policy": &policy_name,
+                "kube-depod/reconcile-trigger-time": &chrono::Utc::now().to_rfc3339()
+            }
+        }
+    }));
+
+    for pod in pods_to_trigger {
+        // [신규] 1. Opt-in 검사: 이 파드가 이 정책을 사용한다고 어노테이션을 달았는가?
+        if !check_trigger(
+            &pod,
+            &policy.spec.trigger.annotation_key,
+            &policy.spec.trigger.annotation_values,
+        ) {
+            // 이 파드는 레이블은 일치하지만, 이 정책을 사용하지 않으므로 "깨울" 필요가 없음
+            continue;
+        }
+
+        // [기존] 2. 안전 장치(Guardrail) 검사: 이 파드가 정책의 최종 범위(NS, Label)에 일치하는가?
+        if !matches_policy(&pod, &policy) {
+            continue;
+        }
+
+        let pod_name = pod.name_any();
+        let pod_ns = pod.namespace().unwrap_or_default();
+        info!(
+            "Triggering reconciliation for Pod {}/{} (policy: {})",
+            pod_ns, pod_name, policy_name
+        );
+
+        // Touch pod to trigger Modify event in Pod controller
+        if let Err(e) = pod_api.patch(&pod_name, &patch_params, &patch).await {
+            warn!(
+                "Failed to 'touch' pod {}/{}: {}",
+                pod_ns, pod_name, e
+            );
+        }
+    }
+
+    // Wait for next policy change event
+    Ok(Action::await_change())
 }

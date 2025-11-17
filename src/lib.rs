@@ -15,6 +15,7 @@ use kube::Client;
 use metrics::Metrics;
 use rate_limiter::RateLimiter;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 #[derive(Clone)]
@@ -24,6 +25,11 @@ pub struct Context {
     pub evaluator: Arc<CelEvaluator>,
     pub policies: Arc<RwLock<Vec<DepodPolicy>>>,
     pub rate_limiter: Arc<RateLimiter>,
+    pub operator_pod_name: Arc<String>,
+    /// Periodic resync interval for cron check feature
+    /// Some(Duration) = enabled with specified interval
+    /// None = disabled
+    pub periodic_resync_interval: Option<Duration>,
 }
 
 #[cfg(test)]

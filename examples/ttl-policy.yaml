@@ -1,3 +1,4 @@
+# TTL-based Pod cleanup policy example
 apiVersion: kube-depod.io/v1alpha1
 kind: DepodPolicy
 metadata:
@@ -29,11 +30,13 @@ spec:
   limits:
     maxDeletesPerMinute: 20
     protectSystemNamespaces: true
+
 ---
+# Example pod that matches the TTL policy
 apiVersion: v1
 kind: Pod
 metadata:
-  name: test-pod
+  name: test-pod-ttl
   namespace: default
   labels:
     app: my-app
@@ -44,3 +47,4 @@ spec:
   - name: busybox
     image: busybox:latest
     command: ["sleep", "3600"]
+  restartPolicy: Never

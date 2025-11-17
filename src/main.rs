@@ -4,13 +4,17 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::runtime::controller::Controller;
 use kube::runtime::watcher::Config;
 use kube::{Api, Client};
-use kube_depod::controller::{error_policy, load_policies, reconcile};
+use kube_depod::controller::{
+    error_policy_pod, error_policy_policy, load_policies, reconcile_pod, reconcile_policy,
+};
+use kube_depod::crd::DepodPolicy;
 use kube_depod::engine::CelEvaluator;
 use kube_depod::metrics::Metrics;
 use kube_depod::rate_limiter::RateLimiter;
 use kube_depod::server::start_server;
 use kube_depod::Context;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::info;
 
 #[tokio::main]
@@ -23,6 +27,31 @@ async fn main() -> Result<()> {
 
     let client = Client::try_default().await?;
     info!("Connected to Kubernetes cluster");
+
+    // Read operator Pod name from Downward API environment variable
+    let operator_pod_name = std::env::var("OPERATOR_POD_NAME")
+        .unwrap_or_else(|_| "kube-depod-unknown".to_string());
+    info!("Operator Pod Name: {}", operator_pod_name);
+
+    // Load periodic resync (cron check) configuration
+    let periodic_resync_interval = if std::env::var("RESYNC_ENABLE")
+        .unwrap_or_else(|_| "true".to_string())
+        .eq_ignore_ascii_case("true")
+    {
+        let interval_seconds = std::env::var("RESYNC_INTERVAL_SECONDS")
+            .unwrap_or_else(|_| "3600".to_string())
+            .parse::<u64>()
+            .unwrap_or(3600);
+
+        info!(
+            "Periodic Resync (Cron Check) enabled. Interval: {} seconds",
+            interval_seconds
+        );
+        Some(Duration::from_secs(interval_seconds))
+    } else {
+        info!("Periodic Resync (Cron Check) is disabled.");
+        None
+    };
 
     // Create metrics instance
     let metrics = Arc::new(Metrics::new());
@@ -40,30 +69,6 @@ async fn main() -> Result<()> {
 
     // Shared state for policies
     let policies = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let policies_clone = policies.clone();
-
-    // Spawn a background task to periodically reload policies
-    let policies_client = client.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            match load_policies(&policies_client).await {
-                Ok(p) => {
-                    let mut policies_mut = policies_clone.write().await;
-                    *policies_mut = p.clone();
-                    if p.is_empty() {
-                        tracing::debug!("No policies loaded");
-                    } else {
-                        info!(count = p.len(), "Policies reloaded");
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to reload policies: {}", e);
-                }
-            }
-        }
-    });
 
     // Load policies initially
     {
@@ -88,15 +93,33 @@ async fn main() -> Result<()> {
         evaluator: Arc::new(CelEvaluator::new()),
         policies,
         rate_limiter,
+        operator_pod_name: Arc::new(operator_pod_name),
+        periodic_resync_interval,
     });
 
-    // Pod API for watching
+    // --- Start DepodPolicy controller ---
+    let policy_api: Api<DepodPolicy> = Api::all(client.clone());
+    let policy_ctx = ctx.clone();
+
+    tokio::spawn(async move {
+        info!("Starting DepodPolicy controller");
+        Controller::new(policy_api, Config::default())
+            .run(reconcile_policy, error_policy_policy, policy_ctx)
+            .for_each(|res| async move {
+                match res {
+                    Ok((policy_ref, _action)) => info!("Reconciled policy {:?}", policy_ref.name),
+                    Err(e) => tracing::warn!("Policy reconcile error: {}", e),
+                }
+            })
+            .await;
+    });
+
+    // --- Start Pod controller ---
     let api: Api<Pod> = Api::all(client.clone());
 
-    // Start Kubernetes controller
     info!("Starting Kubernetes controller");
     Controller::new(api, Config::default())
-        .run(reconcile, error_policy, ctx)
+        .run(reconcile_pod, error_policy_pod, ctx)
         .for_each(|res| async move {
             match res {
                 Ok((pod_ref, _action)) => info!("Reconciled {:?}", pod_ref.name),

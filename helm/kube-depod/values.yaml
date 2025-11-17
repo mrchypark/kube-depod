@@ -72,6 +72,10 @@ operator:
   protectSystemNamespaces: true
   # Metrics server port
   metricsPort: 8080
+  # Periodic Resync (Cron Check)
+  resync:
+    enable: true
+    intervalSeconds: 3600
 
 # CRD installation (Helm will auto-install CRDs from crds/ directory)
 crds:

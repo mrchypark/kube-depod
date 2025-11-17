@@ -25,6 +25,10 @@ spec:
         env:
         - name: RUST_LOG
           value: "kube_depod=info,kube=info"
+        - name: OPERATOR_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         resources:
           requests:
             cpu: 100m

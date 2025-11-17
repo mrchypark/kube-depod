@@ -1,0 +1,181 @@
+# Periodic Resync Configuration Example (KDEPOD-FIX-RECON-004)
+#
+# This example demonstrates how to configure periodic resynchronization
+# for the kube-depod operator using environment variables.
+#
+# The periodic resync feature ensures that pods are re-evaluated at
+# regular intervals, even if there are no changes to the pod or policy.
+# This is useful for:
+# - CEL expressions that check time-based conditions
+# - Cron-like cleanup schedules
+# - Ensuring periodic reconciliation without relying on watch events
+
+---
+# Example 1: Time-based Cleanup Policy
+# This policy demonstrates cleaning up pods older than 30 minutes
+# Works best with periodic resync enabled
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: old-pods-cleanup
+  namespace: default
+spec:
+  match:
+    namespaceSelector:
+      matchNames:
+        - default
+    podSelector:
+      matchLabels:
+        ephemeral: "true"
+
+  trigger:
+    annotationKey: "kube-depod/cleanup"
+    annotationValues:
+      - "ttl"
+
+  # TTL-based condition: 30 minutes (1800 seconds)
+  when:
+    type: "Builtin"
+    ttlSeconds: 1800
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 30
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 20
+    protectSystemNamespaces: true
+
+---
+# Example 2: Periodic Job Status Monitoring
+# CEL expression that checks if job containers are completed
+apiVersion: kube-depod.io/v1alpha1
+kind: DepodPolicy
+metadata:
+  name: periodic-batch-cleanup
+  namespace: default
+spec:
+  match:
+    namespaceSelector:
+      matchNames:
+        - default
+    podSelector:
+      matchLabels:
+        job-type: batch
+
+  trigger:
+    annotationKey: "kube-depod/policy"
+    annotationValues:
+      - "periodic-cleanup"
+
+  # CEL expression for completed pods
+  when:
+    type: "CEL"
+    expression: |
+      has(status) &&
+      status.phase == 'Succeeded' &&
+      (now - metadata.creationTimestamp).seconds > 3600
+
+  then:
+    type: "Delete"
+    gracePeriodSeconds: 0
+    dryRun: false
+
+  limits:
+    maxDeletesPerMinute: 30
+    protectSystemNamespaces: true
+
+---
+# Example Pod with ephemeral label for Time-based Cleanup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ephemeral-pod-1
+  namespace: default
+  labels:
+    ephemeral: "true"
+    app: temp-task
+  annotations:
+    kube-depod/cleanup: "ttl"
+spec:
+  containers:
+  - name: worker
+    image: busybox:latest
+    command: ["sleep", "1800"]  # Sleep for 30 minutes
+  restartPolicy: Never
+
+---
+# Example Pod with batch job label for Periodic Job Monitoring
+apiVersion: v1
+kind: Pod
+metadata:
+  name: batch-job-1
+  namespace: default
+  labels:
+    job-type: batch
+    app: data-processor
+  annotations:
+    kube-depod/policy: "periodic-cleanup"
+spec:
+  containers:
+  - name: processor
+    image: busybox:latest
+    command: ["echo", "Processing complete"]
+  restartPolicy: Never
+
+---
+# Configuration for Periodic Resync
+# This would be set via environment variables or Helm values
+#
+# In Helm values.yaml:
+#   operator:
+#     resync:
+#       enable: true           # Enable periodic resync
+#       intervalSeconds: 3600  # Resync every 1 hour
+#
+# Environment variables injected into the operator Deployment:
+#   - name: RESYNC_ENABLE
+#     value: "true"
+#   - name: RESYNC_INTERVAL_SECONDS
+#     value: "3600"
+#
+# Deployment manifest example:
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: kube-depod
+#   namespace: kube-system
+# spec:
+#   ...
+#   template:
+#     spec:
+#       containers:
+#       - name: kube-depod
+#         image: ghcr.io/mrchypark/kube-depod:v0.1.2
+#         env:
+#         - name: RUST_LOG
+#           value: "info"
+#         - name: OPERATOR_POD_NAME
+#           valueFrom:
+#             fieldRef:
+#               fieldPath: metadata.name
+#         # Periodic Resync Configuration
+#         - name: RESYNC_ENABLE
+#           value: "true"           # Set to "false" to disable
+#         - name: RESYNC_INTERVAL_SECONDS
+#           value: "3600"           # 1 hour = 3600 seconds
+#
+# Default Behavior:
+# - With periodic resync ENABLED: Pods are re-evaluated every 3600 seconds
+#   (1 hour) even if there are no changes
+# - With periodic resync DISABLED: Pods are only evaluated when:
+#   * The pod is modified
+#   * A policy is modified
+#   * The operator restarts
+#
+# Benefits of Enabling Periodic Resync:
+# - Ensures TTL-based cleanup works reliably
+# - Time-based CEL expressions are evaluated regularly
+# - No reliance on watch events for cleanup
+# - Predictable cleanup schedules

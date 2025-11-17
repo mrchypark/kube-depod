@@ -38,8 +38,16 @@ spec:
           containerPort: {{ .Values.operator.metricsPort }}
           protocol: TCP
         env:
-        - name: RUST_LOG
-          value: {{ .Values.env.RUST_LOG | quote }}
+         - name: RUST_LOG
+           value: {{ .Values.env.RUST_LOG | quote }}
+         - name: OPERATOR_POD_NAME
+           valueFrom:
+             fieldRef:
+               fieldPath: metadata.name
+         - name: RESYNC_ENABLE
+           value: {{ .Values.operator.resync.enable | quote }}
+         - name: RESYNC_INTERVAL_SECONDS
+           value: {{ .Values.operator.resync.intervalSeconds | quote }}
         livenessProbe:
           httpGet:
             path: /health
