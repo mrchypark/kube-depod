@@ -3,6 +3,7 @@ use cel::{Context, Program, Value};
 use chrono::Utc;
 use dashmap::DashMap;
 use k8s_openapi::api::core::v1::Pod;
+use kube::ResourceExt;
 use serde_json::to_value as json_to_value;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -20,9 +21,20 @@ impl CelEvaluator {
         }
     }
 
-    /// Compile and evaluate a CEL expression
-    /// Note: Now takes &self instead of &mut self for non-blocking concurrent evaluation
-    pub fn evaluate(&self, expr: &str, pod: &Pod) -> Result<bool> {
+    /// Compile and evaluate a CEL expression with policy/pod context
+    ///
+    /// Parameters:
+    /// - expr: CEL expression to evaluate
+    /// - pod: Pod object to evaluate against
+    /// - policy_name: Name of the policy (for logging context)
+    ///
+    /// Note: Takes &self instead of &mut self for non-blocking concurrent evaluation
+    pub fn evaluate(
+        &self,
+        expr: &str,
+        pod: &Pod,
+        policy_name: &str,
+    ) -> Result<bool> {
         // Get or compile the expression
         let program = if let Some(cached) = self.expression_cache.get(expr) {
             cached.value().clone()
@@ -35,7 +47,12 @@ impl CelEvaluator {
                     prog
                 }
                 Err(e) => {
-                    warn!("CEL compilation error for expression '{}': {}", expr, e);
+                    let pod_ns = pod.namespace().unwrap_or_default();
+                    let pod_name = pod.name_any();
+                    warn!(
+                        "CEL compilation error for policy={} pod={}/{} expr='{}': {}",
+                        policy_name, pod_ns, pod_name, expr, e
+                    );
                     return Err(crate::Error::CelCompilationError(e.to_string()));
                 }
             }
@@ -53,9 +70,11 @@ impl CelEvaluator {
                     Value::UInt(u) => u != 0,
                     Value::Float(f) => f != 0.0,
                     _ => {
+                        let pod_ns = pod.namespace().unwrap_or_default();
+                        let pod_name = pod.name_any();
                         warn!(
-                            "CEL expression '{}' did not evaluate to boolean, got: {:?}",
-                            expr, result
+                            "CEL non-boolean result for policy={} pod={}/{} expr='{}', got: {:?}",
+                            policy_name, pod_ns, pod_name, expr, result
                         );
                         return Err(crate::Error::CelEvaluationError(
                             "Expression did not evaluate to boolean".to_string(),
@@ -66,7 +85,12 @@ impl CelEvaluator {
                 Ok(bool_result)
             }
             Err(e) => {
-                warn!("CEL evaluation error for expression '{}': {}", expr, e);
+                let pod_ns = pod.namespace().unwrap_or_default();
+                let pod_name = pod.name_any();
+                warn!(
+                    "CEL evaluation error for policy={} pod={}/{} expr='{}': {}",
+                    policy_name, pod_ns, pod_name, expr, e
+                );
                 Err(crate::Error::CelEvaluationError(e.to_string()))
             }
         }
@@ -169,7 +193,7 @@ mod tests {
         pod.metadata.creation_timestamp =
             Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
 
-        let _result = evaluator.evaluate("age > 600", &pod);
+        let _result = evaluator.evaluate("age > 600", &pod, "test-policy");
         assert!(evaluator.cache_size() > 0);
 
         evaluator.clear_cache();
@@ -185,7 +209,7 @@ mod tests {
         pod.metadata.creation_timestamp =
             Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
 
-        let result = evaluator.evaluate("age > 600", &pod);
+        let result = evaluator.evaluate("age > 600", &pod, "test-policy");
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -199,7 +223,7 @@ mod tests {
         pod.metadata.creation_timestamp =
             Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(past));
 
-        let result = evaluator.evaluate("age < 200", &pod);
+        let result = evaluator.evaluate("age < 200", &pod, "test-policy");
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -214,7 +238,7 @@ mod tests {
         });
 
         // Test accessing via status shortcut
-        let result = evaluator.evaluate("status.phase == 'Failed'", &pod);
+        let result = evaluator.evaluate("status.phase == 'Failed'", &pod, "test-policy");
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -229,7 +253,7 @@ mod tests {
         });
 
         // Test accessing via pod root variable
-        let result = evaluator.evaluate("pod.status.phase == 'Failed'", &pod);
+        let result = evaluator.evaluate("pod.status.phase == 'Failed'", &pod, "test-policy");
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -239,7 +263,7 @@ mod tests {
         let evaluator = CelEvaluator::new();
         let pod = Pod::default();
 
-        let result = evaluator.evaluate("this is not valid cel !!!!", &pod);
+        let result = evaluator.evaluate("this is not valid cel !!!!", &pod, "test-policy");
         assert!(result.is_err());
     }
 
@@ -248,7 +272,7 @@ mod tests {
         let evaluator = CelEvaluator::new();
         let pod = Pod::default();
 
-        let result = evaluator.evaluate("age >", &pod);
+        let result = evaluator.evaluate("age >", &pod, "test-policy");
         assert!(result.is_err());
         if let Err(crate::Error::CelCompilationError(_)) = result {
             // Expected
@@ -269,11 +293,11 @@ mod tests {
         let expr = "age > 600";
 
         // First evaluation - compilation happens
-        let _result1 = evaluator.evaluate(expr, &pod);
+        let _result1 = evaluator.evaluate(expr, &pod, "test-policy");
         assert_eq!(evaluator.cache_size(), 1);
 
         // Second evaluation - should use cache
-        let _result2 = evaluator.evaluate(expr, &pod);
+        let _result2 = evaluator.evaluate(expr, &pod, "test-policy");
         assert_eq!(evaluator.cache_size(), 1);
     }
 }
