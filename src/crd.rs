@@ -117,7 +117,12 @@ pub struct Limits {
 }
 
 impl DepodPolicySpec {
-    /// Validate the spec
+    /// Validate the spec with strict type checking
+    /// 
+    /// Enforces:
+    /// - CEL type: expression must be present, ttlSeconds must be absent
+    /// - Builtin type: ttlSeconds must be present, expression must be absent
+    /// - Other types: rejected
     pub fn validate(&self) -> Result<(), String> {
         if self.trigger.annotation_key.is_empty() {
             return Err("trigger.annotation_key cannot be empty".to_string());
@@ -127,19 +132,56 @@ impl DepodPolicySpec {
             return Err("trigger.annotation_values cannot be empty".to_string());
         }
 
-        if self.when.condition_type == "CEL" && self.when.expression.is_none() {
-            return Err("when.expression required for CEL type".to_string());
+        // Validate 'when' condition type and fields
+        match self.when.condition_type.as_str() {
+            "CEL" => {
+                // CEL type: expression required, ttlSeconds must be absent
+                if self.when.expression.is_none() || self.when.expression.as_ref().map_or(true, |s| s.trim().is_empty()) {
+                    return Err("when.expression required and cannot be empty for CEL type".to_string());
+                }
+                if self.when.ttl_seconds.is_some() {
+                    return Err(
+                        "when.ttlSeconds must not be set for CEL type (use expression instead)".to_string()
+                    );
+                }
+            }
+            "Builtin" => {
+                // Builtin type: ttlSeconds required, expression must be absent
+                if self.when.ttl_seconds.is_none() {
+                    return Err("when.ttlSeconds required for Builtin type".to_string());
+                }
+                if let Some(ttl) = self.when.ttl_seconds {
+                    if ttl <= 0 {
+                        return Err("when.ttlSeconds must be a positive integer".to_string());
+                    }
+                }
+                if self.when.expression.is_some() {
+                    return Err(
+                        "when.expression must not be set for Builtin type (use ttlSeconds instead)".to_string()
+                    );
+                }
+            }
+            _ => {
+                return Err(format!(
+                    "unsupported condition type '{}': must be 'CEL' or 'Builtin'",
+                    self.when.condition_type
+                ));
+            }
         }
 
-        if self.when.condition_type == "Builtin" && self.when.ttl_seconds.is_none() {
-            return Err("when.ttl_seconds required for Builtin type".to_string());
-        }
-
+        // Validate 'then' action type
         if !["Delete", "Evict"].contains(&self.then.action_type.as_str()) {
             return Err(format!(
-                "unsupported action type: {}",
+                "unsupported action type '{}': must be 'Delete' or 'Evict'",
                 self.then.action_type
             ));
+        }
+
+        // Validate grace period if present
+        if let Some(grace) = self.then.grace_period_seconds {
+            if grace < 0 {
+                return Err("then.gracePeriodSeconds must be non-negative".to_string());
+            }
         }
 
         Ok(())
