@@ -3,11 +3,12 @@ use arc_swap::ArcSwap;
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::runtime::controller::Controller;
+use kube::runtime::reflector::reflector;
 use kube::runtime::watcher::Config;
 use kube::{Api, Client};
 use kube_depod::config::Config as OpConfig;
 use kube_depod::controller::{
-    error_policy_pod, error_policy_policy, load_policies, reconcile_pod, reconcile_policy,
+    error_policy_pod, error_policy_policy, reconcile_pod, reconcile_policy,
 };
 use kube_depod::crd::DepodPolicy;
 use kube_depod::engine::CelEvaluator;
@@ -54,20 +55,12 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Load policies initially (lock-free with ArcSwap)
-    let initial_policies = match load_policies(&client).await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!("Failed to load initial policies: {}", e);
-            Vec::new()
-        }
-    };
-    if !initial_policies.is_empty() {
-        info!(count = initial_policies.len(), "Initial policies loaded");
-    }
+    // Initialize policy Store from Reflector for cluster-wide cache
+    let policy_api: Api<DepodPolicy> = Api::all(client.clone());
+    let (policy_store, writer) = kube::runtime::reflector::store();
 
     // Shared state for policies using ArcSwap (lock-free)
-    let policies = Arc::new(ArcSwap::new(Arc::new(initial_policies)));
+    let policies = Arc::new(ArcSwap::new(Arc::new(Vec::new())));
 
     // Create Context for shared state from config
     let ctx = Arc::new(Context {
@@ -75,6 +68,7 @@ async fn main() -> Result<()> {
         metrics: metrics.clone(),
         evaluator: Arc::new(CelEvaluator::new()),
         policies,
+        policy_store,
         rate_limiter,
         operator_pod_name: Arc::new(config.operator_pod_name.clone()),
         periodic_resync_interval: config.periodic_resync_interval,
@@ -89,8 +83,18 @@ async fn main() -> Result<()> {
         let _ = shutdown_tx_signal.send(());
     });
 
+    // --- Start DepodPolicy Reflector ---
+    let policy_api_reflector = policy_api.clone();
+    let reflector_handle = tokio::spawn(async move {
+        info!("Starting DepodPolicy Reflector");
+        reflector(writer, kube::runtime::watcher::watcher(policy_api_reflector, Config::default()))
+            .boxed()
+            .for_each(|_| async {})
+            .await;
+        info!("DepodPolicy Reflector stopped");
+    });
+
     // --- Start DepodPolicy controller ---
-    let policy_api: Api<DepodPolicy> = Api::all(client.clone());
     let policy_ctx = ctx.clone();
     let shutdown_rx_policy = shutdown_tx.subscribe();
 
@@ -160,23 +164,23 @@ async fn main() -> Result<()> {
     const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
     info!("Waiting for controllers to shut down gracefully (timeout: {:?})", GRACEFUL_SHUTDOWN_TIMEOUT);
 
-    // Create a future that waits for both controllers
-    let both_controllers = async {
-        tokio::try_join!(policy_handle, pod_handle)
+    // Create a future that waits for reflector and both controllers
+    let all_tasks = async {
+        tokio::try_join!(reflector_handle, policy_handle, pod_handle)
     };
 
     // Attempt graceful shutdown with timeout
-    match timeout(GRACEFUL_SHUTDOWN_TIMEOUT, both_controllers).await {
+    match timeout(GRACEFUL_SHUTDOWN_TIMEOUT, all_tasks).await {
         Ok(Ok(_)) => {
-            info!("Controllers shut down gracefully");
+            info!("Reflector and controllers shut down gracefully");
         }
         Ok(Err(e)) => {
-            tracing::warn!("Controller join error: {}", e);
+            tracing::warn!("Task join error: {}", e);
         }
         Err(_) => {
-            info!("Graceful shutdown timeout exceeded, controllers did not respond to shutdown signal");
+            info!("Graceful shutdown timeout exceeded, tasks did not respond to shutdown signal");
             // Stage 2: Forced termination would happen here, but handles are already consumed
-            // The select! inside each controller should have caught the shutdown signal
+            // The select! inside each task should have caught the shutdown signal
         }
     }
 

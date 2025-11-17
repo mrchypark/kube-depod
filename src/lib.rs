@@ -13,6 +13,7 @@ pub use error::{Error, Result};
 use arc_swap::ArcSwap;
 use crd::DepodPolicy;
 use engine::CelEvaluator;
+use kube::runtime::reflector::Store;
 use kube::Client;
 use metrics::Metrics;
 use rate_limiter::RateLimiter;
@@ -27,6 +28,8 @@ pub struct Context {
     /// Lock-free policy cache using ArcSwap
     /// Enables concurrent reads without blocking writes (no RwLock contention)
     pub policies: Arc<ArcSwap<Vec<DepodPolicy>>>,
+    /// Store for DepodPolicy resources from Reflector (for cluster-wide cache)
+    pub policy_store: Store<DepodPolicy>,
     pub rate_limiter: Arc<RateLimiter>,
     pub operator_pod_name: Arc<String>,
     /// Periodic resync interval for cron check feature

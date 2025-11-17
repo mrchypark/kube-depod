@@ -144,31 +144,7 @@ async fn update_policy_status(
 /// This function loads policies and filters out invalid ones at load time.
 /// Invalid policies are logged as warnings but excluded from the result.
 /// This ensures that only valid policies are cached and used in the hot path.
-pub async fn load_policies(client: &Client) -> Result<Vec<DepodPolicy>> {
-    let api: Api<DepodPolicy> = Api::all(client.clone());
-    let lp = ListParams::default();
 
-    let all_policies = api.list(&lp).await?;
-    let total_count = all_policies.items.len();
-
-    let mut valid_policies = Vec::new();
-    for policy in all_policies.items {
-        match policy.spec.validate() {
-            Ok(()) => valid_policies.push(policy),
-            Err(e) => {
-                warn!("Skipping invalid policy {}: {}", policy.name_any(), e);
-            }
-        }
-    }
-
-    info!(
-        count = valid_policies.len(),
-        skipped = total_count - valid_policies.len(),
-        "Loaded policies"
-    );
-
-    Ok(valid_policies)
-}
 
 /// New reconcile function for kube-rs Controller framework (Pod-specific)
 pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
@@ -590,22 +566,31 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
         policy_name
     );
 
-    // --- 1. Reload entire policy cache (lock-free with ArcSwap) ---
-    match load_policies(&ctx.client).await {
-        Ok(all_policies) => {
-            ctx.policies.store(Arc::new(all_policies));
-            info!("Policy cache refreshed due to {} change", policy_name);
-            
-            // Update policy status with Ready condition
-            let condition = PolicyCondition::ready();
-            if let Err(status_err) = update_policy_status(&ctx.client, &policy_name, &policy_ns, condition).await {
-                warn!("Failed to update policy status for {}: {}", policy_name, status_err);
+    // --- 1. Update policy cache from Store (lock-free with ArcSwap) ---
+    // Read all policies from the Reflector's Store instead of making API calls
+    let all_policies: Vec<DepodPolicy> = ctx.policy_store.state()
+        .iter()
+        .filter_map(|policy_arc| {
+            // Validate each policy from store
+            if policy_arc.spec.validate().is_ok() {
+                Some((**policy_arc).clone())
+            } else {
+                None
             }
-        }
-        Err(e) => {
-            warn!("Failed to reload policies cache: {}", e);
-            return Ok(Action::requeue(Duration::from_secs(5)));
-        }
+        })
+        .collect();
+
+    ctx.policies.store(Arc::new(all_policies.clone()));
+    info!(
+        count = all_policies.len(),
+        "Policy cache refreshed from store due to {} change",
+        policy_name
+    );
+    
+    // Update policy status with Ready condition
+    let condition = PolicyCondition::ready();
+    if let Err(status_err) = update_policy_status(&ctx.client, &policy_name, &policy_ns, condition).await {
+        warn!("Failed to update policy status for {}: {}", policy_name, status_err);
     }
 
     // --- 2. Find and touch all matching pods ---
