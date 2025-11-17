@@ -227,7 +227,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
             }
             crate::crd::ConditionType::CEL => {
                 if let Some(expr) = &policy.spec.when.expression {
-                    match ctx.evaluator.evaluate(expr, &pod) {
+                    match ctx.evaluator.evaluate(expr, &pod, &policy.name_any()) {
                         Ok(condition_result) => {
                             debug!(
                                 "CEL evaluation for pod {}/{}: {} = {}",
