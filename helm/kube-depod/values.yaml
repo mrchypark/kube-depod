@@ -70,11 +70,13 @@ operator:
   rateLimit: 20
   # Pod patch concurrency limit: max concurrent pod patch operations
   podPatchConcurrencyLimit: 10
-  # Protect system namespaces
+  # Protect system namespaces (kube-system, kube-public, kube-node-lease, kube-depod)
+  # System namespaces will be ignored by the operator regardless of policies
   protectSystemNamespaces: true
-  # Server port
+  # Server port for metrics endpoint
   serverPort: 8080
   # Periodic Resync (Cron Check)
+  # Periodically resync all DepodPolicy resources to ensure consistency
   resync:
     enable: true
     intervalSeconds: 3600
@@ -94,6 +96,11 @@ crds:
 # Namespace configuration
 namespace:
   # Whether to create the namespace
-  create: true
-  # Name of the namespace
-  name: kube-system
+  # If false, the release namespace (-n flag) will be used
+  # If true and name is set, the specified namespace will be created
+  create: false
+  # Name of the namespace to use or create (optional)
+  # If empty, the release namespace (-n flag) will be used
+  # If set with create=true, this namespace will be created
+  # Example: helm install kube-depod ... --set namespace.create=true --set namespace.name=kube-depod
+  name: ""

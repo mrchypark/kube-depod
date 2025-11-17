@@ -58,3 +58,15 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Return the namespace to use
+If namespace.name is set, use it; otherwise use the release namespace
+*/}}
+{{- define "kube-depod.namespace" -}}
+{{- if .Values.namespace.name }}
+{{- .Values.namespace.name }}
+{{- else }}
+{{- .Release.Namespace }}
+{{- end }}
+{{- end }}

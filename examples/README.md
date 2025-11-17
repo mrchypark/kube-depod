@@ -151,7 +151,7 @@ metadata.labels['env'] == 'test'
 
 # Namespace checking
 metadata.namespace == 'default'
-metadata.namespace != 'kube-system'
+metadata.namespace != 'kube-system'  # Exclude system namespaces
 
 # Annotation checking
 has(metadata.annotations['cleanup-at'])
@@ -209,7 +209,7 @@ kubectl apply -f advanced-cel-examples.yaml
 kubectl set env deployment/kube-depod \
   RESYNC_ENABLE=true \
   RESYNC_INTERVAL_SECONDS=3600 \
-  -n kube-system
+  -n kube-depod
 
 # Apply periodic resync example
 kubectl apply -f periodic-resync-example.yaml
@@ -227,7 +227,7 @@ then:
 
 Check logs:
 ```bash
-kubectl logs -f deployment/kube-depod -n kube-system | grep "Would delete"
+kubectl logs -f deployment/kube-depod -n kube-depod | grep "Would delete"
 ```
 
 ### Debugging CEL Expressions
@@ -235,9 +235,9 @@ Enable debug logging:
 ```bash
 kubectl set env deployment/kube-depod \
   RUST_LOG=debug \
-  -n kube-system
+  -n kube-depod
 
-kubectl logs -f deployment/kube-depod -n kube-system | grep "CEL evaluation"
+kubectl logs -f deployment/kube-depod -n kube-depod | grep "CEL evaluation"
 ```
 
 ## Migration from Old CEL Context

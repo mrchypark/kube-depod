@@ -8,7 +8,7 @@ kube-depod is a Rust-based Kubernetes operator that automatically deletes Pods b
 
 - **Annotation-driven triggers**: Policies activate when Pods have specific annotations
 - **Flexible conditions**: TTL-based (Builtin) or CEL expression-based conditions
-- **Safety guardrails**: Rate limiting, system namespace protection, dry-run mode
+- **Safety guardrails**: Rate limiting, system namespace protection (kube-system, kube-public, kube-node-lease, kube-depod), dry-run mode
 - **Observability**: Structured logging with tracing
 
 ## Architecture
@@ -39,7 +39,7 @@ Kubernetes API Server
   - Namespace conditions (`metadata.namespace == "ns"`)
 - Delete action with graceful termination
 - Dry-run mode
-- System namespace protection
+- System namespace protection (prevents accidental deletion in kube-system, kube-public, kube-node-lease, kube-depod)
 - Structured logging
 - Unit tests (20+ test cases)
 
@@ -58,8 +58,8 @@ cargo build --release
 helm repo add kube-depod https://mrchypark.github.io/kube-depod
 helm repo update
 
-# Install in kube-system namespace
-helm install kube-depod kube-depod/kube-depod -n kube-system --create-namespace
+# Install in kube-depod namespace (isolated from system namespaces)
+helm install kube-depod kube-depod/kube-depod -n kube-depod --create-namespace
 ```
 
 For more Helm options, see [Helm Chart Documentation](helm/README.md)
@@ -74,8 +74,8 @@ kubectl apply -f manifests/crd.yaml
 kubectl apply -f manifests/rbac.yaml
 kubectl apply -f manifests/deployment.yaml
 
-# Or using Helm
-helm install kube-depod ./helm/kube-depod -n kube-system --create-namespace
+# Or using Helm (recommended)
+helm install kube-depod ./helm/kube-depod -n kube-depod --create-namespace
 ```
 
 ### Local Development
