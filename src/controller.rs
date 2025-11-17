@@ -1,4 +1,5 @@
 use crate::crd::{DepodPolicy, PolicyCondition};
+use crate::status_updater::StatusUpdater;
 use crate::{Context, Result};
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
@@ -117,6 +118,8 @@ pub fn is_namespace_protected(
 }
 
 /// Update policy status with a condition
+/// 
+/// This function uses StatusUpdater to safely update the policy status.
 async fn update_policy_status(
     client: &Client,
     policy_name: &str,
@@ -125,12 +128,13 @@ async fn update_policy_status(
 ) -> Result<()> {
     let api: Api<DepodPolicy> = Api::namespaced(client.clone(), namespace);
     
+    // Use StatusUpdater to ensure consistent status updates
+    let mut status = crate::crd::DepodPolicyStatus::default();
+    StatusUpdater::update_condition(&mut status, condition);
+    
     let patch_params = PatchParams::default();
     let patch = Patch::Merge(serde_json::json!({
-        "status": {
-            "conditions": [condition],
-            "lastObservedTime": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-        }
+        "status": status
     }));
 
     api.patch_subresource("status", policy_name, &patch_params, &patch)
