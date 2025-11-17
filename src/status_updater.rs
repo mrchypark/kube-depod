@@ -1,5 +1,5 @@
 use chrono::Utc;
-use crate::crd::{DepodPolicyStatus, PolicyCondition};
+use crate::crd::{DepodPolicyStatus, PolicyCondition, When, validate_when};
 
 /// Status updater for DepodPolicy
 ///
@@ -80,6 +80,29 @@ impl StatusUpdater {
         Self::update_condition(status, PolicyCondition::ready());
         Self::update_last_observed_time(status);
     }
+
+    /// Validate When condition and update status with result
+    ///
+    /// If validation fails, updates status with InvalidSpec condition.
+    /// Returns the validation result.
+    pub fn validate_and_update_when(
+        status: &mut DepodPolicyStatus,
+        when: &When,
+    ) -> crate::Result<()> {
+        match validate_when(when) {
+            Ok(()) => {
+                // Only mark ready if no other conditions are present
+                if status.conditions.is_empty() {
+                    Self::mark_ready(status);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                Self::mark_invalid_spec(status, e.to_string());
+                Err(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -147,5 +170,79 @@ mod tests {
         assert_eq!(status.pods_matched, 0);
         assert_eq!(status.pods_deleted, 0);
         assert_eq!(status.evaluation_errors, 0);
+    }
+
+    #[test]
+    fn test_validate_and_update_when_valid_cel() {
+        use crate::crd::{ConditionType, When};
+
+        let mut status = DepodPolicyStatus::default();
+        let when = When {
+            condition_type: ConditionType::CEL,
+            expression: Some("status.phase == 'Succeeded'".to_string()),
+            ttl_seconds: None,
+        };
+
+        let result = StatusUpdater::validate_and_update_when(&mut status, &when);
+        
+        assert!(result.is_ok());
+        assert_eq!(status.conditions.len(), 1);
+        assert_eq!(status.conditions[0].condition_type, "Ready");
+    }
+
+    #[test]
+    fn test_validate_and_update_when_invalid_cel() {
+        use crate::crd::{ConditionType, When};
+
+        let mut status = DepodPolicyStatus::default();
+        let when = When {
+            condition_type: ConditionType::CEL,
+            expression: None, // Missing required expression
+            ttl_seconds: None,
+        };
+
+        let result = StatusUpdater::validate_and_update_when(&mut status, &when);
+        
+        assert!(result.is_err());
+        assert_eq!(status.conditions.len(), 1);
+        assert_eq!(status.conditions[0].condition_type, "InvalidSpec");
+        assert!(status.conditions[0].message.as_ref().unwrap().contains("expression required"));
+    }
+
+    #[test]
+    fn test_validate_and_update_when_valid_builtin() {
+        use crate::crd::{ConditionType, When};
+
+        let mut status = DepodPolicyStatus::default();
+        let when = When {
+            condition_type: ConditionType::Builtin,
+            expression: None,
+            ttl_seconds: Some(600),
+        };
+
+        let result = StatusUpdater::validate_and_update_when(&mut status, &when);
+        
+        assert!(result.is_ok());
+        assert_eq!(status.conditions.len(), 1);
+        assert_eq!(status.conditions[0].condition_type, "Ready");
+    }
+
+    #[test]
+    fn test_validate_and_update_when_invalid_builtin() {
+        use crate::crd::{ConditionType, When};
+
+        let mut status = DepodPolicyStatus::default();
+        let when = When {
+            condition_type: ConditionType::Builtin,
+            expression: None,
+            ttl_seconds: Some(-1), // Invalid: must be positive
+        };
+
+        let result = StatusUpdater::validate_and_update_when(&mut status, &when);
+        
+        assert!(result.is_err());
+        assert_eq!(status.conditions.len(), 1);
+        assert_eq!(status.conditions[0].condition_type, "InvalidSpec");
+        assert!(status.conditions[0].message.as_ref().unwrap().contains("must be a positive integer"));
     }
 }
