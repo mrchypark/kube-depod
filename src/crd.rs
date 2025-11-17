@@ -2,6 +2,8 @@ use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use chrono::Utc;
+use crate::Error;
 
 /// Condition type for policy evaluation
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Eq)]
@@ -29,7 +31,8 @@ pub enum ActionType {
     group = "kube-depod.io",
     version = "v1alpha1",
     kind = "DepodPolicy",
-    namespaced
+    namespaced,
+    status = "DepodPolicyStatus"
 )]
 pub struct DepodPolicySpec {
     /// Match namespace and pod selectors
@@ -149,6 +152,92 @@ pub struct Limits {
     pub excluded_namespaces: Option<Vec<String>>,
 }
 
+/// Status of a DepodPolicy
+#[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema)]
+pub struct DepodPolicyStatus {
+    /// Conditions represent the latest available observations of the DepodPolicy's state
+    #[serde(default)]
+    pub conditions: Vec<PolicyCondition>,
+
+    /// Last time the policy was observed and evaluated (RFC3339 format)
+    #[serde(default, rename = "lastObservedTime")]
+    pub last_observed_time: Option<String>,
+
+    /// Total number of pods evaluated under this policy
+    #[serde(default)]
+    pub pods_evaluated: i32,
+
+    /// Number of pods that matched this policy
+    #[serde(default)]
+    pub pods_matched: i32,
+
+    /// Number of pods deleted/evicted by this policy
+    #[serde(default)]
+    pub pods_deleted: i32,
+
+    /// Any evaluation errors that occurred
+    #[serde(default)]
+    pub evaluation_errors: i32,
+}
+
+/// PolicyCondition describes the state of a policy
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct PolicyCondition {
+    /// Type of condition (e.g., "InvalidCEL", "SpecValidated", "Ready")
+    #[serde(rename = "type")]
+    pub condition_type: String,
+
+    /// Status of the condition (True, False, Unknown)
+    pub status: String,
+
+    /// Last time the condition was probed (RFC3339 format)
+    #[serde(rename = "lastTransitionTime", default)]
+    pub last_transition_time: Option<String>,
+
+    /// Unique, one-word, CamelCase reason for the condition's last transition
+    #[serde(default)]
+    pub reason: Option<String>,
+
+    /// Human-readable message indicating details about the transition
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+impl PolicyCondition {
+    /// Create a new InvalidCEL condition
+    pub fn invalid_cel(message: impl Into<String>) -> Self {
+        Self {
+            condition_type: "InvalidCEL".to_string(),
+            status: "True".to_string(),
+            last_transition_time: Some(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+            reason: Some("CELCompilationError".to_string()),
+            message: Some(message.into()),
+        }
+    }
+
+    /// Create a new InvalidSpec condition
+    pub fn invalid_spec(message: impl Into<String>) -> Self {
+        Self {
+            condition_type: "InvalidSpec".to_string(),
+            status: "True".to_string(),
+            last_transition_time: Some(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+            reason: Some("SpecValidationError".to_string()),
+            message: Some(message.into()),
+        }
+    }
+
+    /// Create a Ready condition
+    pub fn ready() -> Self {
+        Self {
+            condition_type: "Ready".to_string(),
+            status: "True".to_string(),
+            last_transition_time: Some(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+            reason: Some("PolicyValidated".to_string()),
+            message: Some("Policy spec is valid and ready for evaluation".to_string()),
+        }
+    }
+}
+
 impl DepodPolicySpec {
     /// Validate the spec
     ///
@@ -157,13 +246,15 @@ impl DepodPolicySpec {
     /// - Builtin type: ttlSeconds must be present and positive, expression must be absent
     /// - Action types are compile-time checked via enum
     /// - Grace period (if present) must be non-negative
-    pub fn validate(&self) -> Result<(), String> {
+    ///
+    /// Returns `crate::Result<()>` for unified error handling
+    pub fn validate(&self) -> crate::Result<()> {
         if self.trigger.annotation_key.is_empty() {
-            return Err("trigger.annotation_key cannot be empty".to_string());
+            return Err(Error::ValidationError("trigger.annotation_key cannot be empty".to_string()));
         }
 
         if self.trigger.annotation_values.is_empty() {
-            return Err("trigger.annotation_values cannot be empty".to_string());
+            return Err(Error::ValidationError("trigger.annotation_values cannot be empty".to_string()));
         }
 
         // Validate 'when' condition type and fields
@@ -171,28 +262,28 @@ impl DepodPolicySpec {
             ConditionType::CEL => {
                 // CEL type: expression required, ttlSeconds must be absent
                 if self.when.expression.is_none() || self.when.expression.as_ref().map_or(true, |s| s.trim().is_empty()) {
-                    return Err("when.expression required and cannot be empty for CEL type".to_string());
+                    return Err(Error::ValidationError("when.expression required and cannot be empty for CEL type".to_string()));
                 }
                 if self.when.ttl_seconds.is_some() {
-                    return Err(
+                    return Err(Error::ValidationError(
                         "when.ttlSeconds must not be set for CEL type (use expression instead)".to_string()
-                    );
+                    ));
                 }
             }
             ConditionType::Builtin => {
                 // Builtin type: ttlSeconds required and positive, expression must be absent
                 if self.when.ttl_seconds.is_none() {
-                    return Err("when.ttlSeconds required for Builtin type".to_string());
+                    return Err(Error::ValidationError("when.ttlSeconds required for Builtin type".to_string()));
                 }
                 if let Some(ttl) = self.when.ttl_seconds {
                     if ttl <= 0 {
-                        return Err("when.ttlSeconds must be a positive integer".to_string());
+                        return Err(Error::ValidationError("when.ttlSeconds must be a positive integer".to_string()));
                     }
                 }
                 if self.when.expression.is_some() {
-                    return Err(
+                    return Err(Error::ValidationError(
                         "when.expression must not be set for Builtin type (use ttlSeconds instead)".to_string()
-                    );
+                    ));
                 }
             }
         }
@@ -202,7 +293,7 @@ impl DepodPolicySpec {
         // Validate grace period if present
         if let Some(grace) = self.then.grace_period_seconds {
             if grace < 0 {
-                return Err("then.gracePeriodSeconds must be non-negative".to_string());
+                return Err(Error::ValidationError("then.gracePeriodSeconds must be non-negative".to_string()));
             }
         }
 
