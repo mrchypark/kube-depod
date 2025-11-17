@@ -1,5 +1,6 @@
 use axum::{extract::State, http::StatusCode, routing::get, Router};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tracing::info;
 
 use crate::metrics::Metrics;
@@ -25,6 +26,7 @@ pub async fn health_handler() -> (StatusCode, &'static str) {
 pub async fn start_server(
     metrics: Arc<Metrics>,
     port: u16,
+    mut shutdown_rx: broadcast::Receiver<()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let state = ServerState { metrics };
 
@@ -36,7 +38,12 @@ pub async fn start_server(
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     info!("Metrics server listening on port {}", port);
 
-    axum::serve(listener, app).await?;
+    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+        let _ = shutdown_rx.recv().await;
+        info!("Metrics server shutting down gracefully");
+    });
+
+    server.await?;
 
     Ok(())
 }

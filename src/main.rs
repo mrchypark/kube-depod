@@ -16,6 +16,7 @@ use kube_depod::server::start_server;
 use kube_depod::Context;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::broadcast;
 use tracing::info;
 
 #[tokio::main]
@@ -83,9 +84,13 @@ async fn main() -> Result<()> {
         .unwrap_or(8080);
     info!("Metrics server port configured: {}", metrics_port);
 
+    // Create shutdown broadcast channel
+    let (shutdown_tx, _) = broadcast::channel(1);
+
     // Start metrics HTTP server in background task
+    let shutdown_tx_metrics = shutdown_tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = start_server(metrics_clone, metrics_port).await {
+        if let Err(e) = start_server(metrics_clone, metrics_port, shutdown_tx_metrics.subscribe()).await {
             tracing::error!("Metrics server error: {}", e);
         }
     });
@@ -117,11 +122,19 @@ async fn main() -> Result<()> {
         pod_patch_concurrency_limit,
     });
 
+    // Graceful shutdown handler
+    let shutdown_tx_signal = shutdown_tx.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("Received shutdown signal (SIGINT/SIGTERM)");
+        let _ = shutdown_tx_signal.send(());
+    });
+
     // --- Start DepodPolicy controller ---
     let policy_api: Api<DepodPolicy> = Api::all(client.clone());
     let policy_ctx = ctx.clone();
 
-    tokio::spawn(async move {
+    let policy_handle = tokio::spawn(async move {
         info!("Starting DepodPolicy controller");
         Controller::new(policy_api, Config::default())
             .run(reconcile_policy, error_policy_policy, policy_ctx)
@@ -137,17 +150,28 @@ async fn main() -> Result<()> {
     // --- Start Pod controller ---
     let api: Api<Pod> = Api::all(client.clone());
 
-    info!("Starting Kubernetes controller");
-    Controller::new(api, Config::default())
-        .run(reconcile_pod, error_policy_pod, ctx)
-        .for_each(|res| async move {
-            match res {
-                Ok((pod_ref, _action)) => info!("Reconciled {:?}", pod_ref.name),
-                Err(e) => tracing::warn!("Reconcile error: {}", e),
-            }
-        })
-        .await;
+    let pod_handle = tokio::spawn(async move {
+        info!("Starting Kubernetes controller");
+        Controller::new(api, Config::default())
+            .run(reconcile_pod, error_policy_pod, ctx)
+            .for_each(|res| async move {
+                match res {
+                    Ok((pod_ref, _action)) => info!("Reconciled {:?}", pod_ref.name),
+                    Err(e) => tracing::warn!("Reconcile error: {}", e),
+                }
+            })
+            .await;
+    });
 
-    info!("Controller finished");
+    // Wait for shutdown signal
+    let mut shutdown_rx = shutdown_tx.subscribe();
+    let _ = shutdown_rx.recv().await;
+    info!("Initiating graceful shutdown");
+
+    // Cancel controller tasks
+    policy_handle.abort();
+    pod_handle.abort();
+
+    info!("Graceful shutdown complete");
     Ok(())
 }
