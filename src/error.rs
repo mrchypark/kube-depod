@@ -14,6 +14,9 @@ pub enum Error {
     #[error("CEL evaluation error: {0}")]
     CelEvaluationError(String),
 
+    #[error("CRD validation error: {0}")]
+    ValidationError(String),
+
     #[error("Custom error: {0}")]
     Custom(String),
 }
