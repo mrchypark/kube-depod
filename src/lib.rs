@@ -6,6 +6,7 @@ pub mod error;
 pub mod metrics;
 pub mod rate_limiter;
 pub mod server;
+pub mod status_updater;
 
 pub use error::{Error, Result};
 
@@ -137,7 +138,7 @@ mod tests {
         };
 
         let err = spec.validate().unwrap_err();
-        assert!(err.contains("when.expression required"));
+        assert!(err.to_string().contains("when.expression required"));
     }
 
     #[test]
@@ -169,7 +170,7 @@ mod tests {
         };
 
         let err = spec.validate().unwrap_err();
-        assert!(err.contains("when.ttlSeconds must not be set for CEL type"));
+        assert!(err.to_string().contains("when.ttlSeconds must not be set for CEL type"));
     }
 
     #[test]
@@ -201,7 +202,7 @@ mod tests {
         };
 
         let err = spec.validate().unwrap_err();
-        assert!(err.contains("when.ttlSeconds required"));
+        assert!(err.to_string().contains("when.ttlSeconds required"));
     }
 
     #[test]
@@ -233,7 +234,7 @@ mod tests {
         };
 
         let err = spec.validate().unwrap_err();
-        assert!(err.contains("when.expression must not be set for Builtin type"));
+        assert!(err.to_string().contains("when.expression must not be set for Builtin type"));
     }
 
     #[test]
@@ -265,6 +266,6 @@ mod tests {
         };
 
         let err = spec.validate().unwrap_err();
-        assert!(err.contains("when.ttlSeconds must be a positive integer"));
+        assert!(err.to_string().contains("when.ttlSeconds must be a positive integer"));
     }
 }
