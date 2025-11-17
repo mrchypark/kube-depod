@@ -6,6 +6,12 @@ on:
       - main
     tags:
       - "v*"
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile.cc"
+      - ".github/workflows/build-and-push-glibc.yml"
 
 jobs:
   build:

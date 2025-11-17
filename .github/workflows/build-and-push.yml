@@ -6,6 +6,12 @@ on:
       - main
     tags:
       - "v*"
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile"
+      - ".github/workflows/build-and-push.yml"
 
 jobs:
   build:
