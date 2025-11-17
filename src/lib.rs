@@ -40,6 +40,7 @@ pub struct Context {
 #[cfg(test)]
 mod tests {
     use crate::crd::{ActionType, ConditionType, DepodPolicySpec, Limits, Match, Then, Trigger, When};
+    use std::collections::BTreeSet;
 
     #[test]
     fn test_policy_validation_builtin_valid() {
@@ -50,7 +51,7 @@ mod tests {
             },
             trigger: Trigger {
                 annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["ttl-10m".to_string()],
+                annotation_values: BTreeSet::from(["ttl-10m".to_string()]),
             },
             when: When {
                 condition_type: ConditionType::Builtin,
@@ -81,7 +82,7 @@ mod tests {
             },
             trigger: Trigger {
                 annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["auto-cleanup".to_string()],
+                annotation_values: BTreeSet::from(["auto-cleanup".to_string()]),
             },
             when: When {
                 condition_type: ConditionType::CEL,
@@ -112,7 +113,7 @@ mod tests {
             },
             trigger: Trigger {
                 annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["auto-cleanup".to_string()],
+                annotation_values: BTreeSet::from(["auto-cleanup".to_string()]),
             },
             when: When {
                 condition_type: ConditionType::CEL,
@@ -144,7 +145,7 @@ mod tests {
             },
             trigger: Trigger {
                 annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["auto-cleanup".to_string()],
+                annotation_values: BTreeSet::from(["auto-cleanup".to_string()]),
             },
             when: When {
                 condition_type: ConditionType::CEL,
@@ -176,7 +177,7 @@ mod tests {
             },
             trigger: Trigger {
                 annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["ttl-10m".to_string()],
+                annotation_values: BTreeSet::from(["ttl-10m".to_string()]),
             },
             when: When {
                 condition_type: ConditionType::Builtin,
@@ -208,7 +209,7 @@ mod tests {
             },
             trigger: Trigger {
                 annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["ttl-10m".to_string()],
+                annotation_values: BTreeSet::from(["ttl-10m".to_string()]),
             },
             when: When {
                 condition_type: ConditionType::Builtin,
@@ -240,7 +241,7 @@ mod tests {
             },
             trigger: Trigger {
                 annotation_key: "kube-depod/policy".to_string(),
-                annotation_values: vec!["ttl-10m".to_string()],
+                annotation_values: BTreeSet::from(["ttl-10m".to_string()]),
             },
             when: When {
                 condition_type: ConditionType::Builtin,
