@@ -1,7 +1,7 @@
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Condition type for policy evaluation
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Eq)]
@@ -82,9 +82,9 @@ pub struct Trigger {
     #[serde(rename = "annotationKey")]
     pub annotation_key: String,
 
-    /// Accepted annotation values
+    /// Accepted annotation values (BTreeSet for O(log n) lookup)
     #[serde(rename = "annotationValues")]
-    pub annotation_values: Vec<String>,
+    pub annotation_values: BTreeSet<String>,
 }
 
 /// When specifies the evaluation rule

@@ -48,7 +48,7 @@ pub fn matches_policy(pod: &Pod, policy: &DepodPolicy) -> bool {
 }
 
 /// Checks if pod has the required annotation
-pub fn check_trigger(pod: &Pod, annotation_key: &str, annotation_values: &[String]) -> bool {
+pub fn check_trigger(pod: &Pod, annotation_key: &str, annotation_values: &std::collections::BTreeSet<String>) -> bool {
     if let Some(annotations) = &pod.metadata.annotations {
         if let Some(value) = annotations.get(annotation_key) {
             return annotation_values.contains(value);
