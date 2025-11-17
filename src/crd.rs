@@ -119,19 +119,32 @@ pub struct Then {
     pub dry_run: bool,
 }
 
-/// Limits defines safety guardrails
+/// Limits defines safety guardrails for pod deletion
+///
+/// Note: `maxDeletesPerMinute` is typically not set here. Instead, the global
+/// rate limit is configured via the `RATE_LIMIT_PER_MINUTE` environment variable
+/// (default: 20). If you need per-policy rate limits in the future, set this field;
+/// otherwise, leave it unset to use the global rate limit.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct Limits {
-    /// Max pods to delete per minute
+    /// Max pods to delete per minute for this policy
+    ///
+    /// Optional. If not set, the global rate limit (from RATE_LIMIT_PER_MINUTE env)
+    /// is used. Reserved for future per-policy rate limiting.
     #[serde(default, rename = "maxDeletesPerMinute")]
     pub max_deletes_per_minute: Option<i32>,
 
-    /// Protect system namespaces
+    /// Protect system namespaces from deletion
+    ///
+    /// Default: true. When enabled, pods in system namespaces
+    /// (kube-*, default) are protected.
     #[serde(default, rename = "protectSystemNamespaces")]
     pub protect_system_namespaces: bool,
 
     /// List of additional namespaces to exclude from deletion
-    /// Comma-separated or as a YAML list
+    ///
+    /// These namespaces will be protected from pod deletion by this policy,
+    /// regardless of pod labels or other conditions.
     #[serde(default, rename = "excludedNamespaces")]
     pub excluded_namespaces: Option<Vec<String>>,
 }

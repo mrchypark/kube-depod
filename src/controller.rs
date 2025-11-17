@@ -307,7 +307,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         policy.name_any()
                     );
                 } else {
-                    // Check rate limit if enabled
+                    // Check global rate limit (configured via RATE_LIMIT_PER_MINUTE env, default: 20)
                     if !ctx.rate_limiter.allow() {
                         info!(
                             "Rate limit exceeded for pod {}/{} (policy: {})",
@@ -359,7 +359,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         policy.name_any()
                     );
                 } else {
-                    // Check rate limit if enabled
+                    // Check global rate limit (configured via RATE_LIMIT_PER_MINUTE env, default: 20)
                     if !ctx.rate_limiter.allow() {
                         info!(
                             "Rate limit exceeded for pod {}/{} (policy: {})",
