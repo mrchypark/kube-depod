@@ -29,6 +29,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: RESYNC_ENABLE
+          value: "true"
+        - name: RESYNC_INTERVAL_SECONDS
+          value: "3600"
         resources:
           requests:
             cpu: 100m
