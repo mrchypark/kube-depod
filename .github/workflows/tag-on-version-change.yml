@@ -11,7 +11,7 @@ jobs:
   tag:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed to push a tag
+      contents: write # Needed to write commits and tags
 
     steps:
       - name: Checkout code
@@ -25,21 +25,42 @@ jobs:
       - name: Extract version from Cargo.toml
         id: version
         run: |
-          # Extracts the version field from Cargo.toml
           VERSION=$(grep '^version =' Cargo.toml | head -n 1 | sed 's/version = "//;s/"//')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Check if tag exists and create it if not
+      - name: Update Helm Chart version
+        id: update_chart
+        run: |
+          CHART_PATH="helm/kube-depod/Chart.yaml"
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          
+          # Get the current version from the chart to prevent re-running
+          OLD_VERSION=$(grep '^version: ' ${CHART_PATH} | sed 's/version: //')
+          
+          if [ "${OLD_VERSION}" = "${NEW_VERSION}" ]; then
+            echo "Helm chart version is already up to date. Nothing to do."
+            echo "continue=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Updating Helm chart from ${OLD_VERSION} to ${NEW_VERSION}"
+          # Update both version and appVersion
+          sed -i "s/^version: .*/version: ${NEW_VERSION}/" ${CHART_PATH}
+          sed -i "s/^appVersion: .*/appVersion: \"${NEW_VERSION}\"/" ${CHART_PATH}
+          echo "continue=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push Helm chart changes
+        if: steps.update_chart.outputs.continue == 'true'
+        run: |
+          git add helm/kube-depod/Chart.yaml
+          git commit -m "chore(release): bump helm chart to v${{ steps.version.outputs.version }} [skip ci]"
+          git push
+
+      - name: Create and push new tag
+        if: steps.update_chart.outputs.continue == 'true'
         run: |
           TAG="v${{ steps.version.outputs.version }}"
-          echo "Checking for tag ${TAG}..."
-          
-          # Check if tag exists locally or remotely
-          if git rev-parse "${TAG}" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists. Nothing to do."
-          else
-            echo "Tag ${TAG} does not exist. Creating and pushing tag..."
-            git tag "${TAG}"
-            git push origin "${TAG}"
-            echo "Tag ${TAG} pushed successfully."
-          fi
+          echo "Creating and pushing tag ${TAG}..."
+          git tag "${TAG}"
+          git push origin "${TAG}"
+          echo "Tag ${TAG} pushed successfully."
