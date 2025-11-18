@@ -148,8 +148,6 @@ async fn update_policy_status(
 /// This function loads policies and filters out invalid ones at load time.
 /// Invalid policies are logged as warnings but excluded from the result.
 /// This ensures that only valid policies are cached and used in the hot path.
-
-
 /// New reconcile function for kube-rs Controller framework (Pod-specific)
 pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
     let pod_name = pod.name_any();

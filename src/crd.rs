@@ -253,7 +253,11 @@ pub fn validate_when(when: &When) -> crate::Result<()> {
     match when.condition_type {
         ConditionType::CEL => {
             // CEL type: expression is required
-            if when.expression.is_none() || when.expression.as_ref().map_or(true, |s| s.trim().is_empty()) {
+            let is_invalid = match when.expression.as_ref() {
+                None => true,
+                Some(s) => s.trim().is_empty(),
+            };
+            if is_invalid {
                 return Err(Error::ValidationError("when.expression required and cannot be empty for CEL type".to_string()));
             }
             // CEL type: ttlSeconds must not be set
