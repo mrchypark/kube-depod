@@ -10,90 +10,94 @@ use chrono::Utc;
 
 /// Create a Pod with the given status phase
 fn create_pod_with_phase(namespace: &str, name: &str, phase: &str) -> Pod {
-    let mut pod = Pod::default();
-    pod.metadata = ObjectMeta {
-        name: Some(name.to_string()),
-        namespace: Some(namespace.to_string()),
+    Pod {
+        metadata: ObjectMeta {
+            name: Some(name.to_string()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        status: Some(PodStatus {
+            phase: Some(phase.to_string()),
+            ..Default::default()
+        }),
         ..Default::default()
-    };
-    pod.status = Some(PodStatus {
-        phase: Some(phase.to_string()),
-        ..Default::default()
-    });
-    pod
+    }
 }
 
 /// Create a Pod with CrashLoopBackOff status
 fn create_crashloop_pod(namespace: &str, name: &str, restart_count: i32) -> Pod {
-    let mut pod = Pod::default();
-    pod.metadata = ObjectMeta {
-        name: Some(name.to_string()),
-        namespace: Some(namespace.to_string()),
-        ..Default::default()
-    };
-    pod.status = Some(PodStatus {
-        phase: Some("Running".to_string()),
-        container_statuses: Some(vec![ContainerStatus {
-            name: "app".to_string(),
-            ready: false,
-            restart_count,
-            state: Some(ContainerState {
-                waiting: Some(ContainerStateWaiting {
-                    reason: Some("CrashLoopBackOff".to_string()),
-                    message: None,
+    Pod {
+        metadata: ObjectMeta {
+            name: Some(name.to_string()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        status: Some(PodStatus {
+            phase: Some("Running".to_string()),
+            container_statuses: Some(vec![ContainerStatus {
+                name: "app".to_string(),
+                ready: false,
+                restart_count,
+                state: Some(ContainerState {
+                    waiting: Some(ContainerStateWaiting {
+                        reason: Some("CrashLoopBackOff".to_string()),
+                        message: None,
+                    }),
+                    ..Default::default()
                 }),
                 ..Default::default()
-            }),
+            }]),
             ..Default::default()
-        }]),
+        }),
         ..Default::default()
-    });
-    pod
+    }
 }
 
 /// Create a Pod with ImagePullBackOff status
 fn create_imagepull_backoff_pod(namespace: &str, name: &str, reason: &str) -> Pod {
-    let mut pod = Pod::default();
-    pod.metadata = ObjectMeta {
-        name: Some(name.to_string()),
-        namespace: Some(namespace.to_string()),
-        ..Default::default()
-    };
-    pod.status = Some(PodStatus {
-        phase: Some("Pending".to_string()),
-        container_statuses: Some(vec![ContainerStatus {
-            name: "app".to_string(),
-            ready: false,
-            restart_count: 0,
-            state: Some(ContainerState {
-                waiting: Some(ContainerStateWaiting {
-                    reason: Some(reason.to_string()),
-                    message: None,
+    Pod {
+        metadata: ObjectMeta {
+            name: Some(name.to_string()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        status: Some(PodStatus {
+            phase: Some("Pending".to_string()),
+            container_statuses: Some(vec![ContainerStatus {
+                name: "app".to_string(),
+                ready: false,
+                restart_count: 0,
+                state: Some(ContainerState {
+                    waiting: Some(ContainerStateWaiting {
+                        reason: Some(reason.to_string()),
+                        message: None,
+                    }),
+                    ..Default::default()
                 }),
                 ..Default::default()
-            }),
+            }]),
             ..Default::default()
-        }]),
+        }),
         ..Default::default()
-    });
-    pod
+    }
 }
 
 
 
 /// Create a Pod with a specific age (creation timestamp)
 fn create_pod_with_age(namespace: &str, name: &str, age_seconds: i64) -> Pod {
-    let mut pod = Pod::default();
     let now = Utc::now();
     let past = now - chrono::Duration::seconds(age_seconds);
-    pod.metadata = ObjectMeta {
-        name: Some(name.to_string()),
-        namespace: Some(namespace.to_string()),
-        creation_timestamp: Some(Time(past)),
+    Pod {
+        metadata: ObjectMeta {
+            name: Some(name.to_string()),
+            namespace: Some(namespace.to_string()),
+            creation_timestamp: Some(Time(past)),
+            ..Default::default()
+        },
+        status: Some(PodStatus::default()),
         ..Default::default()
-    };
-    pod.status = Some(PodStatus::default());
-    pod
+    }
 }
 
 #[test]
@@ -218,25 +222,27 @@ fn test_cel_complex_ready_condition_check() {
         ..Default::default()
     };
 
-    let mut pod = Pod::default();
-    pod.metadata = ObjectMeta {
-        name: Some("completed-pod".to_string()),
-        namespace: Some("default".to_string()),
+    let pod = Pod {
+        metadata: ObjectMeta {
+            name: Some("completed-pod".to_string()),
+            namespace: Some("default".to_string()),
+            ..Default::default()
+        },
+        status: Some(PodStatus {
+            phase: Some("Failed".to_string()),
+            container_statuses: Some(vec![terminated_status]),
+            conditions: Some(vec![PodCondition {
+                type_: "Ready".to_string(),
+                status: "False".to_string(),
+                last_probe_time: None,
+                last_transition_time: None,
+                reason: None,
+                message: None,
+            }]),
+            ..Default::default()
+        }),
         ..Default::default()
     };
-    pod.status = Some(PodStatus {
-        phase: Some("Failed".to_string()),
-        container_statuses: Some(vec![terminated_status]),
-        conditions: Some(vec![PodCondition {
-            type_: "Ready".to_string(),
-            status: "False".to_string(),
-            last_probe_time: None,
-            last_transition_time: None,
-            reason: None,
-            message: None,
-        }]),
-        ..Default::default()
-    });
 
     // Expression - Policy for ready condition and terminated state
     let expr = r#"(
@@ -383,11 +389,13 @@ fn test_cel_no_container_statuses() {
 #[test]
 fn test_has_status() {
     let evaluator = CelEvaluator::new();
-    let mut pod = Pod::default();
-    pod.status = Some(PodStatus {
-        phase: Some("Succeeded".to_string()),
+    let pod = Pod {
+        status: Some(PodStatus {
+            phase: Some("Succeeded".to_string()),
+            ..Default::default()
+        }),
         ..Default::default()
-    });
+    };
 
     // Test has(status.phase) && status.phase == 'Succeeded'
     let result = evaluator.evaluate("has(status.phase) && status.phase == 'Succeeded'", &pod, "test-policy");
@@ -398,10 +406,12 @@ fn test_has_status() {
 #[test]
 fn test_cel_metadata_access() {
     let evaluator = CelEvaluator::new();
-    let mut pod = Pod::default();
-    pod.metadata = ObjectMeta {
-        name: Some("test-pod".to_string()),
-        namespace: Some("test-ns".to_string()),
+    let pod = Pod {
+        metadata: ObjectMeta {
+            name: Some("test-pod".to_string()),
+            namespace: Some("test-ns".to_string()),
+            ..Default::default()
+        },
         ..Default::default()
     };
 

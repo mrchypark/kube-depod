@@ -231,11 +231,13 @@ mod tests {
     #[test]
     fn test_pod_status_access() {
         let evaluator = CelEvaluator::new();
-        let mut pod = Pod::default();
-        pod.status = Some(k8s_openapi::api::core::v1::PodStatus {
-            phase: Some("Failed".to_string()),
+        let pod = Pod {
+            status: Some(k8s_openapi::api::core::v1::PodStatus {
+                phase: Some("Failed".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
 
         // Test accessing via status shortcut
         let result = evaluator.evaluate("status.phase == 'Failed'", &pod, "test-policy");
@@ -246,11 +248,13 @@ mod tests {
     #[test]
     fn test_pod_reference() {
         let evaluator = CelEvaluator::new();
-        let mut pod = Pod::default();
-        pod.status = Some(k8s_openapi::api::core::v1::PodStatus {
-            phase: Some("Failed".to_string()),
+        let pod = Pod {
+            status: Some(k8s_openapi::api::core::v1::PodStatus {
+                phase: Some("Failed".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
 
         // Test accessing via pod root variable
         let result = evaluator.evaluate("pod.status.phase == 'Failed'", &pod, "test-policy");

@@ -144,8 +144,10 @@ mod tests {
 
     #[test]
     fn test_initialize() {
-        let mut status = DepodPolicyStatus::default();
-        status.pods_evaluated = 5;
+        let mut status = DepodPolicyStatus {
+            pods_evaluated: 5,
+            ..Default::default()
+        };
         
         StatusUpdater::initialize(&mut status);
         
