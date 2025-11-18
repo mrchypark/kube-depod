@@ -26,22 +26,32 @@ kube-depod Operator
 Kubernetes API Server
 ```
 
-## Phase 1-2: MVP + CEL Features (Current)
+## Features
 
-✅ **Completed:**
+✅ **Core Functionality:**
 - DepodPolicy CRD definition with validation
 - Pod watching and reconciliation loop
 - Annotation-based policy triggers
 - Builtin TTL condition evaluation
-- CEL expression engine integration
-  - Age-based conditions (`age > seconds`)
-  - Phase conditions (`status.phase == "Failed"`)
-  - Namespace conditions (`metadata.namespace == "ns"`)
 - Delete action with graceful termination
 - Dry-run mode
 - System namespace protection (prevents accidental deletion in kube-system, kube-public, kube-node-lease, kube-depod)
-- Structured logging
-- Component unit tests for core logic (CEL engine, rate limiter, metrics)
+
+✅ **CEL Integration:**
+- CEL expression engine integration
+- Pod context mapping (age, phase, namespace)
+- Expression evaluation and caching
+- Supported conditions:
+  - Age-based (`age > seconds`)
+  - Phase-based (`status.phase == "Failed"`)
+  - Namespace-based (`metadata.namespace == "ns"`)
+
+✅ **Observability & Safety:**
+- Prometheus metrics endpoint (`:8080/metrics`)
+- Health check endpoint (`:8080/health`)
+- Rate limiting (token bucket, configurable per minute)
+- Structured logging with tracing
+- Metrics tracking (evaluated, deleted, matched, errors, rate limited)
 
 ## Building
 
@@ -129,6 +139,10 @@ The operator includes token bucket rate limiting to prevent overwhelming the Kub
 - Configurable via environment or code
 - Gracefully handles rate limit exceeding by skipping deletion but continuing to process other pods
 
+**Note**: The `maxDeletesPerMinute` field in the `DepodPolicy` CRD allows you to set a specific rate limit for that policy. This works in conjunction with the global rate limit:
+- If a policy has `maxDeletesPerMinute` set, both the global limit AND the policy limit must be satisfied.
+- If a policy does not have it set, only the global limit applies.
+
 ### Pod Patch Concurrency Limit
 
 When a policy is updated, the operator triggers re-evaluation of all matching Pods by patching their annotations (a "touch" operation). To prevent overwhelming the API server with concurrent requests:
@@ -198,23 +212,6 @@ metadata.namespace == 'default' && metadata.labels['app'] == 'worker'
 
 ## Roadmap
 
-### Phase 2: CEL Integration ✅ (Complete)
-- ✅ CEL expression engine integration
-- ✅ Pod context mapping (age, phase, namespace)
-- ✅ Expression evaluation and caching
-
-#### Phase 3: Observability ✅ (Complete)
-- ✅ Prometheus metrics endpoint (`:8080/metrics`)
-- ✅ Rate limiting implementation (token bucket, configurable per minute)
-- ✅ Health check endpoint (`:8080/health`)
-- ✅ Metrics tracking:
-  - Total pods evaluated
-  - Total pods deleted
-  - Total policy matches
-  - Total evaluation errors
-  - Total rate limit hits
-
-### Phase 4: Advanced Features
 - Evict action support
 - Multi-policy coordination
 - Status field extensions

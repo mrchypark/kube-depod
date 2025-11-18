@@ -46,6 +46,7 @@ spec:
     dryRun: false
 
   limits:
+  limits:
     maxDeletesPerMinute: 10
     protectSystemNamespaces: true
     excludedNamespaces:
@@ -87,6 +88,7 @@ spec:
     dryRun: false
 
   limits:
+  limits:
     maxDeletesPerMinute: 15
     protectSystemNamespaces: true
 
@@ -121,6 +123,7 @@ spec:
     gracePeriodSeconds: 30
     dryRun: false
 
+  limits:
   limits:
     maxDeletesPerMinute: 8
     protectSystemNamespaces: true
@@ -158,6 +161,7 @@ spec:
     dryRun: false
 
   limits:
+  limits:
     maxDeletesPerMinute: 50
     protectSystemNamespaces: true
 
@@ -193,6 +197,7 @@ spec:
     gracePeriodSeconds: 30
     dryRun: true  # Enable dry-run mode - won't actually delete
 
+  limits:
   limits:
     maxDeletesPerMinute: 100
     protectSystemNamespaces: true

@@ -370,13 +370,21 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         policy.name_any()
                     );
                 } else {
-                    // Check global rate limit (configured via RATE_LIMIT_PER_MINUTE env, default: 20)
-                    if !ctx.rate_limiter.allow() {
+                    // Check global rate limit AND per-policy rate limit
+                    let global_allowed = ctx.rate_limiter.allow_global();
+                    let policy_allowed = ctx.rate_limiter.allow_policy(
+                        &policy.name_any(),
+                        policy.spec.limits.max_deletes_per_minute,
+                    );
+
+                    if !global_allowed || !policy_allowed {
                         info!(
-                            "Rate limit exceeded for pod {}/{} (policy: {})",
+                            "Rate limit exceeded for pod {}/{} (policy: {}). Global: {}, Policy: {}",
                             pod_ns,
                             pod_name,
-                            policy.name_any()
+                            policy.name_any(),
+                            if global_allowed { "OK" } else { "Exceeded" },
+                            if policy_allowed { "OK" } else { "Exceeded" }
                         );
                         ctx.metrics.increment_rate_limited();
                         // Requeue after 10 seconds to avoid hammering the API
@@ -422,13 +430,21 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                         policy.name_any()
                     );
                 } else {
-                    // Check global rate limit (configured via RATE_LIMIT_PER_MINUTE env, default: 20)
-                    if !ctx.rate_limiter.allow() {
+                    // Check global rate limit AND per-policy rate limit
+                    let global_allowed = ctx.rate_limiter.allow_global();
+                    let policy_allowed = ctx.rate_limiter.allow_policy(
+                        &policy.name_any(),
+                        policy.spec.limits.max_deletes_per_minute,
+                    );
+
+                    if !global_allowed || !policy_allowed {
                         info!(
-                            "Rate limit exceeded for pod {}/{} (policy: {})",
+                            "Rate limit exceeded for pod {}/{} (policy: {}). Global: {}, Policy: {}",
                             pod_ns,
                             pod_name,
-                            policy.name_any()
+                            policy.name_any(),
+                            if global_allowed { "OK" } else { "Exceeded" },
+                            if policy_allowed { "OK" } else { "Exceeded" }
                         );
                         ctx.metrics.increment_rate_limited();
                         // Requeue after 10 seconds to avoid hammering the API
