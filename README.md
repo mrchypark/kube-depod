@@ -41,7 +41,7 @@ Kubernetes API Server
 - Dry-run mode
 - System namespace protection (prevents accidental deletion in kube-system, kube-public, kube-node-lease, kube-depod)
 - Structured logging
-- Unit tests (20+ test cases)
+- Component unit tests for core logic (CEL engine, rate limiter, metrics)
 
 ## Building
 
@@ -255,4 +255,4 @@ cargo fmt
 
 ## License
 
-TBD
+This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
