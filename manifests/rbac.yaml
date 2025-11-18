@@ -15,6 +15,11 @@ rules:
     resources: ["depodpolicies"]
     verbs: ["get", "list", "watch"]
 
+  # Patch Policy status
+  - apiGroups: ["kube-depod.io"]
+    resources: ["depodpolicies/status"]
+    verbs: ["patch"]
+
   # Read/Patch/Delete Pods
   - apiGroups: [""]
     resources: ["pods"]
