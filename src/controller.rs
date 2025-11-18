@@ -71,15 +71,24 @@ pub fn check_trigger(
 }
 
 /// Evaluates TTL condition (Builtin type)
-pub fn evaluate_ttl_condition(pod: &Pod, ttl_seconds: i64) -> bool {
+pub fn evaluate_ttl_condition(pod: &Pod, ttl_seconds: i64, now: chrono::DateTime<chrono::Utc>) -> bool {
     if let Some(creation_timestamp) = &pod.metadata.creation_timestamp {
         let created = creation_timestamp.0;
-        let now = chrono::Utc::now();
-
         let age = (now - created).num_seconds();
         age > ttl_seconds
     } else {
         false
+    }
+}
+
+/// Calculate seconds until TTL expires
+pub fn calculate_ttl_requeue(pod: &Pod, ttl_seconds: i64, now: chrono::DateTime<chrono::Utc>) -> Option<u64> {
+    if let Some(creation_timestamp) = &pod.metadata.creation_timestamp {
+        let created = creation_timestamp.0;
+        let age = (now - created).num_seconds();
+        Some((ttl_seconds - age).max(1) as u64)
+    } else {
+        None
     }
 }
 
@@ -192,20 +201,16 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
         let condition_met = match &policy.spec.when.condition_type {
             crate::crd::ConditionType::Builtin => {
                 if let Some(ttl_seconds) = policy.spec.when.ttl_seconds {
-                    if evaluate_ttl_condition(&pod, ttl_seconds) {
+                    let now = chrono::Utc::now();
+                    if evaluate_ttl_condition(&pod, ttl_seconds, now) {
                         debug!("Pod {}/{} meets TTL condition", pod_ns, pod_name);
                         true
                     } else {
                         // Calculate time until TTL expires
-                        if let Some(creation_timestamp) = &pod.metadata.creation_timestamp {
-                            let created = creation_timestamp.0;
-                            let now = chrono::Utc::now();
-                            let age = (now - created).num_seconds();
-                            let ttl_left = (ttl_seconds - age).max(1) as u64;
-
+                        if let Some(ttl_left) = calculate_ttl_requeue(&pod, ttl_seconds, now) {
                             info!(
                                 "Pod {}/{} does not meet TTL ({}/{}s), requeueing in {}s",
-                                pod_ns, pod_name, age, ttl_seconds, ttl_left
+                                pod_ns, pod_name, (now - pod.metadata.creation_timestamp.as_ref().unwrap().0).num_seconds(), ttl_seconds, ttl_left
                             );
 
                             // Store the requeue time (use the minimum if multiple policies)

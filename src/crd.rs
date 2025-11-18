@@ -319,6 +319,11 @@ impl DepodPolicySpec {
             }
         }
 
+        // Warn if max_deletes_per_minute is set (not yet implemented per-policy)
+        if self.limits.max_deletes_per_minute.is_some() {
+            tracing::warn!("limits.maxDeletesPerMinute is currently ignored. Global rate limit is used instead.");
+        }
+
         Ok(())
     }
 }
