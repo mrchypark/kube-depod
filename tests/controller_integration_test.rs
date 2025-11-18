@@ -1,9 +1,8 @@
 use anyhow::Result;
 use k8s_openapi::api::core::v1::Pod;
-use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
-    api::{Api, DeleteParams, ListParams, PostParams, PatchParams, Patch},
+    api::{Api, DeleteParams, PostParams},
     Client, ResourceExt,
 };
 use kube_depod::crd::{DepodPolicy, DepodPolicySpec, Match, PodSelector, Trigger, When, Then, ActionType, ConditionType, Limits};
