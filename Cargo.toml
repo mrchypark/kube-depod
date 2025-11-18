@@ -24,7 +24,7 @@ dashmap = "6.1"
 arc-swap = "1.7"
 
 [dev-dependencies]
-k8s-test = "0.4"
+# k8s-test = "0.4"
 anyhow = "1.0"
 tokio = { version = "1", features = ["full"] }
 

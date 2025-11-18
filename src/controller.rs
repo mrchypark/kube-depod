@@ -760,3 +760,123 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
     // Wait for next policy change event
     Ok(Action::await_change())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crd::{DepodPolicySpec, Match, NamespaceSelector, PodSelector, Trigger, When, Then, ActionType, ConditionType, Limits};
+    use std::collections::{BTreeMap, BTreeSet};
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+
+    fn create_test_policy(
+        namespace_selector: Option<NamespaceSelector>,
+        pod_selector: Option<PodSelector>,
+        annotation_key: &str,
+        annotation_values: BTreeSet<String>,
+    ) -> DepodPolicy {
+        DepodPolicy {
+            metadata: ObjectMeta {
+                name: Some("test-policy".to_string()),
+                ..Default::default()
+            },
+            spec: DepodPolicySpec {
+                match_: Match {
+                    namespace_selector,
+                    pod_selector,
+                },
+                trigger: Trigger {
+                    annotation_key: annotation_key.to_string(),
+                    annotation_values,
+                },
+                when: When {
+                    condition_type: ConditionType::Builtin,
+                    expression: None,
+                    ttl_seconds: Some(60),
+                },
+                then: Then {
+                    action_type: ActionType::Delete,
+                    grace_period_seconds: None,
+                    dry_run: false,
+                },
+                limits: Limits {
+                    max_deletes_per_minute: None,
+                    protect_system_namespaces: true,
+                    excluded_namespaces: None,
+                },
+            },
+            status: None,
+        }
+    }
+
+    #[test]
+    fn test_matches_policy_namespace() {
+        let mut policy = create_test_policy(
+            Some(NamespaceSelector {
+                match_names: vec!["allowed-ns".to_string()],
+            }),
+            None,
+            "test-key",
+            BTreeSet::new(),
+        );
+
+        let mut pod = Pod::default();
+        pod.metadata.namespace = Some("allowed-ns".to_string());
+        assert!(matches_policy(&pod, &policy));
+
+        pod.metadata.namespace = Some("other-ns".to_string());
+        assert!(!matches_policy(&pod, &policy));
+
+        // Empty match_names means all namespaces (if selector is present but empty list? No, logic says if not empty check. If empty list, it skips check)
+        // Let's check logic: if !ns_selector.match_names.is_empty() { check }
+        // So empty list = match all
+        policy.spec.match_.namespace_selector = Some(NamespaceSelector { match_names: vec![] });
+        assert!(matches_policy(&pod, &policy));
+    }
+
+    #[test]
+    fn test_matches_policy_labels() {
+        let mut labels = BTreeMap::new();
+        labels.insert("app".to_string(), "test".to_string());
+        
+        let policy = create_test_policy(
+            None,
+            Some(PodSelector {
+                match_labels: labels.clone(),
+            }),
+            "test-key",
+            BTreeSet::new(),
+        );
+
+        let mut pod = Pod::default();
+        pod.metadata.labels = Some(labels);
+        assert!(matches_policy(&pod, &policy));
+
+        let mut wrong_labels = BTreeMap::new();
+        wrong_labels.insert("app".to_string(), "other".to_string());
+        pod.metadata.labels = Some(wrong_labels);
+        assert!(!matches_policy(&pod, &policy));
+    }
+
+    #[test]
+    fn test_check_trigger() {
+        let key = "kube-depod/test";
+        let values = BTreeSet::from(["true".to_string(), "yes".to_string()]);
+
+        let mut pod = Pod::default();
+        let mut annotations = BTreeMap::new();
+        
+        // Case 1: Annotation present and matching
+        annotations.insert(key.to_string(), "true".to_string());
+        pod.metadata.annotations = Some(annotations.clone());
+        assert!(check_trigger(&pod, key, &values));
+
+        // Case 2: Annotation present but value mismatch
+        annotations.insert(key.to_string(), "no".to_string());
+        pod.metadata.annotations = Some(annotations.clone());
+        assert!(!check_trigger(&pod, key, &values));
+
+        // Case 3: Annotation missing
+        pod.metadata.annotations = None;
+        assert!(!check_trigger(&pod, key, &values));
+    }
+}
