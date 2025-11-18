@@ -44,15 +44,19 @@ jobs:
           fi
 
           echo "Updating Helm chart from ${OLD_VERSION} to ${NEW_VERSION}"
-          # Update both version and appVersion
+          # Update both version and appVersion in Chart.yaml
           sed -i "s/^version: .*/version: ${NEW_VERSION}/" ${CHART_PATH}
           sed -i "s/^appVersion: .*/appVersion: \"${NEW_VERSION}\"/" ${CHART_PATH}
+          
+          # Update image.tag in values.yaml
+          VALUES_PATH="helm/kube-depod/values.yaml"
+          sed -i "s/^\(  tag: \)\"v.*\"/\1\"v${NEW_VERSION}\"/" ${VALUES_PATH}
           echo "continue=true" >> $GITHUB_OUTPUT
 
       - name: Commit and push Helm chart changes
         if: steps.update_chart.outputs.continue == 'true'
         run: |
-          git add helm/kube-depod/Chart.yaml
+          git add helm/kube-depod/Chart.yaml helm/kube-depod/values.yaml
           git commit -m "chore(release): bump helm chart to v${{ steps.version.outputs.version }} [skip ci]"
           git push
 
