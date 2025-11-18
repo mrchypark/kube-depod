@@ -31,13 +31,58 @@ async fn delete_namespace(client: Client, name: &str) -> Result<()> {
     Ok(())
 }
 
+// Helper to install CRD
+async fn install_crd(client: Client) -> Result<()> {
+    let crd_api: Api<k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition> = Api::all(client);
+    
+    // Read CRD from file
+    let crd_content = std::fs::read_to_string("manifests/crd.yaml")?;
+    let crd: k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition = serde_yaml::from_str(&crd_content)?;
+    
+    // Apply CRD
+    let name = crd.metadata.name.clone().unwrap();
+    let pp = PostParams::default();
+    
+    match crd_api.create(&pp, &crd).await {
+        Ok(_) => {},
+        Err(kube::Error::Api(ae)) if ae.code == 409 => {
+            // Already exists, ignore
+        },
+        Err(e) => return Err(e.into()),
+    }
+
+    // Wait for CRD to be established
+    let establish_timeout = Duration::from_secs(10);
+    let start = std::time::Instant::now();
+    loop {
+        if start.elapsed() > establish_timeout {
+            break;
+        }
+        if let Ok(crd) = crd_api.get(&name).await {
+            if let Some(status) = crd.status {
+                if let Some(conditions) = status.conditions {
+                    if conditions.iter().any(|c| c.type_ == "Established" && c.status == "True") {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        sleep(Duration::from_millis(500)).await;
+    }
+    
+    Ok(())
+}
+
 #[tokio::test]
 #[ignore = "requires running kubernetes cluster"]
 async fn test_integration_policy_deletion() -> Result<()> {
     // 1. Initialize client
     let client = Client::try_default().await?;
     
-    // 2. Setup test namespace
+    // 2. Install CRD
+    install_crd(client.clone()).await?;
+    
+    // 3. Setup test namespace
     let test_ns = "test-kube-depod-integration";
     // Clean up previous run if exists
     let _ = delete_namespace(client.clone(), test_ns).await;
