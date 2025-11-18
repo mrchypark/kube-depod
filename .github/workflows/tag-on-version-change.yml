@@ -1,0 +1,45 @@
+name: Tag on Version Change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.toml'
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed to push a tag
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Extract version from Cargo.toml
+        id: version
+        run: |
+          # Extracts the version field from Cargo.toml
+          VERSION=$(grep '^version =' Cargo.toml | head -n 1 | sed 's/version = "//;s/"//')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists and create it if not
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          echo "Checking for tag ${TAG}..."
+          
+          # Check if tag exists locally or remotely
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists. Nothing to do."
+          else
+            echo "Tag ${TAG} does not exist. Creating and pushing tag..."
+            git tag "${TAG}"
+            git push origin "${TAG}"
+            echo "Tag ${TAG} pushed successfully."
+          fi
