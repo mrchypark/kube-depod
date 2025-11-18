@@ -1,21 +1,21 @@
 name: Build and Push
 
 on:
+  workflow_run:
+    workflows: ["Run Tests"]
+    branches: [main]
+    types:
+      - completed
   push:
-    branches:
-      - main
     tags:
       - "v*"
-    paths:
-      - "src/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Dockerfile"
-      - ".github/workflows/build-and-push.yml"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' || 
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     permissions:
       packages: write
       contents: read
