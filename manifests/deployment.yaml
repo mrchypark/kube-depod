@@ -15,12 +15,12 @@ spec:
     metadata:
       labels:
         app: kube-depod
-        version: v0.1.0
+        version: v0.2.0
     spec:
       serviceAccountName: kube-depod
       containers:
       - name: operator
-        image: ghcr.io/mrchypark/kube-depod:v0.1.3
+        image: ghcr.io/mrchypark/kube-depod:v0.2.0
         imagePullPolicy: IfNotPresent
         env:
         - name: RUST_LOG
