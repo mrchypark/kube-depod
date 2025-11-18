@@ -30,11 +30,6 @@ rules:
     resources: ["pods/eviction"]
     verbs: ["create"]
 
-  # Read pod logs for debugging
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
-
   # Read events for status updates
   - apiGroups: [""]
     resources: ["events"]
