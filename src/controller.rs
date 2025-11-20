@@ -157,6 +157,27 @@ async fn update_policy_status(
 /// This function loads policies and filters out invalid ones at load time.
 /// Invalid policies are logged as warnings but excluded from the result.
 /// This ensures that only valid policies are cached and used in the hot path.
+
+
+/// Helper to get policy namespace with fallback
+///
+/// If metadata.namespace is missing (e.g. from Api::all list), try to infer from
+/// namespaceSelector if it has exactly one match. Defaults to "default".
+fn get_policy_namespace(policy: &DepodPolicy) -> String {
+    if let Some(ns) = policy.namespace() {
+        return ns;
+    }
+
+    // Fallback: try to infer from namespace selector
+    if let Some(selector) = &policy.spec.match_.namespace_selector {
+        if selector.match_names.len() == 1 {
+            return selector.match_names[0].clone();
+        }
+    }
+
+    "default".to_string()
+}
+
 /// New reconcile function for kube-rs Controller framework (Pod-specific)
 pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
     let pod_name = pod.name_any();
@@ -248,7 +269,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                             ctx.metrics.increment_evaluation_errors();
                             
                             // Update policy status with InvalidCEL condition
-                            let policy_ns = policy.namespace().unwrap_or_else(|| "default".to_string());
+                            let policy_ns = get_policy_namespace(policy);
                             let condition = PolicyCondition::invalid_cel(&err_msg);
                             if let Err(status_err) = update_policy_status(
                                 &ctx.client,
@@ -274,7 +295,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                             ctx.metrics.increment_evaluation_errors();
                             
                             // Update policy status with InvalidCEL condition
-                            let policy_ns = policy.namespace().unwrap_or_else(|| "default".to_string());
+                            let policy_ns = get_policy_namespace(policy);
                             let condition = PolicyCondition::invalid_cel(&err_msg);
                             if let Err(status_err) = update_policy_status(
                                 &ctx.client,
@@ -300,7 +321,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                             ctx.metrics.increment_evaluation_errors();
                             
                             // Update policy status with InvalidCEL condition
-                            let policy_ns = policy.namespace().unwrap_or_else(|| "default".to_string());
+                            let policy_ns = get_policy_namespace(policy);
                             let condition = PolicyCondition::invalid_cel(&err_msg);
                             if let Err(status_err) = update_policy_status(
                                 &ctx.client,
@@ -566,7 +587,7 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
     use serde_json::json;
 
     let policy_name = policy.name_any();
-    let policy_ns = policy.namespace().unwrap_or_else(|| "default".to_string());
+    let policy_ns = get_policy_namespace(&policy);
 
     // --- Validation: Early exit if policy is invalid ---
     if let Err(e) = policy.spec.validate() {
