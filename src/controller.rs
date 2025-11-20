@@ -152,13 +152,6 @@ async fn update_policy_status(
     Ok(())
 }
 
-/// Load all policy rules with validation
-///
-/// This function loads policies and filters out invalid ones at load time.
-/// Invalid policies are logged as warnings but excluded from the result.
-/// This ensures that only valid policies are cached and used in the hot path.
-
-
 /// Helper to get policy namespace with fallback
 ///
 /// If metadata.namespace is missing (e.g. from Api::all list), try to infer from
@@ -260,7 +253,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                             condition_result
                         }
                         Err(crate::Error::CelCompilationError(e)) => {
-                            let err_msg = format!("CEL compilation failed: {}", e);
+                            let err_msg = format!("CEL compilation failed: {e}");
                             warn!(
                                 "CEL compilation failed for policy {}: {}",
                                 policy.name_any(),
@@ -284,7 +277,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                             false
                         }
                         Err(crate::Error::CelEvaluationError(e)) => {
-                            let err_msg = format!("CEL evaluation failed: {}", e);
+                            let err_msg = format!("CEL evaluation failed: {e}");
                             warn!(
                                 "CEL evaluation failed for pod {}/{} (policy {}): {}",
                                 pod_ns,
@@ -310,7 +303,7 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                             false
                         }
                         Err(e) => {
-                            let err_msg = format!("CEL error: {}", e);
+                            let err_msg = format!("CEL error: {e}");
                             warn!(
                                 "CEL error for pod {}/{} (policy {}): {}",
                                 pod_ns,
@@ -645,7 +638,7 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
         let labels = pod_selector
             .match_labels
             .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
+            .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join(",");
         if !labels.is_empty() {

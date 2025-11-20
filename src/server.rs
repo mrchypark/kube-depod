@@ -35,7 +35,7 @@ pub async fn start_server(
         .route("/health", get(health_handler))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     info!("Metrics server listening on port {}", port);
 
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
