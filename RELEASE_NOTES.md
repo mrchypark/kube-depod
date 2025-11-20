@@ -1,30 +1,23 @@
-# Release Notes - v0.3.0
+# Release Notes (v0.3.1)
 
-## 🚀 New Features
+**Changes since v0.3.0**
 
-### Per-Policy Rate Limiting
-- **Feature**: Added support for the `maxDeletesPerMinute` field in `DepodPolicy`.
-- **Description**: You can now configure rate limits specifically for individual policies. This works in conjunction with the global rate limit.
-    - If a policy has `maxDeletesPerMinute` set, both the global limit AND the policy limit must be satisfied.
-    - If a policy does not have it set, only the global limit applies.
-- **Usage**:
-  ```yaml
-  spec:
-    limits:
-      maxDeletesPerMinute: 10
-  ```
+## 🚀 Features & Improvements
 
-## 🛠 Improvements
+- **Robust Policy Namespace Resolution**: Improved the logic for determining the namespace of a `DepodPolicy`.
+    - The controller now attempts to infer the policy's namespace from its `namespaceSelector` if the namespace is missing in the metadata (which can happen during certain API operations).
+    - This fixes the `ApiError: NotFound` issue that occurred when the controller tried to update the status of a policy but couldn't correctly identify its namespace.
 
-### Controller Logic Refactoring
-- **Refactor**: Extracted TTL calculation and requeue logic into a dedicated helper function `calculate_ttl_requeue`.
-- **Refactor**: Improved `evaluate_ttl_condition` to accept a `now` parameter, enabling deterministic testing.
-- **Refactor**: Updated `reconcile_pod` to use the new helper functions and improve readability.
-
-### Documentation
-- **Update**: Clarified rate limiting behavior in `README.md`.
-- **Update**: Consolidated "Features" and simplified "Roadmap" in `README.md`.
-- **Update**: Updated example YAML files to reflect the new rate limiting capabilities.
+- **Enhanced CEL Evaluation Robustness**: Improved the reliability of CEL policy evaluation.
+    - The `status` variable is now always available in the CEL evaluation context, even for pods that do not yet have a status (e.g., newly created pods).
+    - Instead of failing with an "undeclared reference" error, missing pod status is treated as an empty object. This allows expressions like `has(status.phase)` or `status.reason` to be evaluated safely without causing controller errors.
 
 ## 🐛 Bug Fixes
-- **Fix**: Removed the validation warning for `maxDeletesPerMinute` as it is now fully implemented.
+
+- Fixed an issue where the controller would log errors and fail to update policy status due to incorrect namespace resolution.
+- Fixed CEL evaluation errors for pods with missing status fields.
+
+## 🧪 Tests
+
+- Added unit tests for `get_policy_namespace` to verify fallback logic.
+- Added tests for CEL `status` variable initialization.
