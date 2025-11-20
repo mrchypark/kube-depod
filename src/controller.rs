@@ -919,4 +919,44 @@ mod tests {
         pod.metadata.annotations = None;
         assert!(!check_trigger(&pod, key, &values));
     }
+    #[test]
+    fn test_get_policy_namespace() {
+        // Case 1: Namespace in metadata takes precedence
+        let mut policy = create_test_policy(None, None, "key", BTreeSet::new());
+        policy.metadata.namespace = Some("meta-ns".to_string());
+        policy.spec.match_.namespace_selector = Some(NamespaceSelector {
+            match_names: vec!["selector-ns".to_string()],
+        });
+        assert_eq!(get_policy_namespace(&policy), "meta-ns");
+
+        // Case 2: Metadata namespace missing, fallback to selector (single match)
+        let mut policy = create_test_policy(None, None, "key", BTreeSet::new());
+        policy.metadata.namespace = None;
+        policy.spec.match_.namespace_selector = Some(NamespaceSelector {
+            match_names: vec!["selector-ns".to_string()],
+        });
+        assert_eq!(get_policy_namespace(&policy), "selector-ns");
+
+        // Case 3: Metadata namespace missing, selector has multiple matches -> default
+        let mut policy = create_test_policy(None, None, "key", BTreeSet::new());
+        policy.metadata.namespace = None;
+        policy.spec.match_.namespace_selector = Some(NamespaceSelector {
+            match_names: vec!["ns1".to_string(), "ns2".to_string()],
+        });
+        assert_eq!(get_policy_namespace(&policy), "default");
+
+        // Case 4: Metadata namespace missing, selector empty -> default
+        let mut policy = create_test_policy(None, None, "key", BTreeSet::new());
+        policy.metadata.namespace = None;
+        policy.spec.match_.namespace_selector = Some(NamespaceSelector {
+            match_names: vec![],
+        });
+        assert_eq!(get_policy_namespace(&policy), "default");
+
+        // Case 5: Metadata namespace missing, no selector -> default
+        let mut policy = create_test_policy(None, None, "key", BTreeSet::new());
+        policy.metadata.namespace = None;
+        policy.spec.match_.namespace_selector = None;
+        assert_eq!(get_policy_namespace(&policy), "default");
+    }
 }

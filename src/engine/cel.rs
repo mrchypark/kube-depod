@@ -157,7 +157,9 @@ fn build_evaluation_context(pod: &Pod) -> Result<Context<'_>> {
         // If status is missing, provide empty object to avoid "undeclared reference" error
         // This allows expressions like 'has(status.phase)' to work (evaluates to false)
         // or 'status.phase' (evaluates to error/null depending on CEL config)
-        let _ = context.add_variable("status", Value::Map(DashMap::new()));
+        if let Ok(empty_obj) = cel::to_value(&serde_json::json!({})) {
+            let _ = context.add_variable("status", empty_obj);
+        }
     }
 
     // (C) Add time variables
