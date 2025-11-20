@@ -1,6 +1,10 @@
-# Release Notes (v0.3.1)
+# Release Notes (v0.3.2)
 
 **Changes since v0.3.0**
+
+## 🔧 CI/CD
+
+- **Fixed Workflow Trigger**: Updated the tagging workflow to use a Personal Access Token (PAT). This ensures that the `build-and-push` workflow is correctly triggered when a new version tag is pushed.
 
 ## 🚀 Features & Improvements
 
