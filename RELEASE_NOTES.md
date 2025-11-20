@@ -1,4 +1,12 @@
-# Release Notes (v0.3.2)
+# Release Notes
+
+## v0.3.3
+
+**Changes**
+
+- **CI/CD Fix**: Removed `[skip ci]` from the release commit message and ensured explicit PAT usage. This fixes the issue where the tag push event was being suppressed, preventing the build workflow from triggering.
+
+## v0.3.2
 
 **Changes since v0.3.0**
 
