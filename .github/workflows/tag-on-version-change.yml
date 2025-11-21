@@ -11,7 +11,9 @@ jobs:
   tag:
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write # Needed to write commits and tags
+      workflow: write
 
     steps:
       - name: Checkout code
@@ -85,4 +87,4 @@ jobs:
           echo "Triggering build-and-push workflow for ${TAG}..."
           gh workflow run build-and-push.yml --ref ${TAG} -f tag=${TAG}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAT }}

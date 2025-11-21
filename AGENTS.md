@@ -102,6 +102,7 @@ cargo fmt
 - ✅ `cargo clippy` - No warnings
 - ✅ `cargo test` - All unit tests pass
 - ✅ `cargo check` - Compilation successful
+- ✅ Include `Cargo.lock` when bumping version and committing.
 
 **Optional checks** (recommended):
 - `cargo test --test controller_integration_test -- --ignored` - Integration tests (requires cluster)
