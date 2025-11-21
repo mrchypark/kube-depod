@@ -28,7 +28,7 @@ jobs:
             ghcr.io/mrchypark/kube-depod
           tags: |
             type=semver,pattern=v{{version}},suffix=-glibc,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix={{branch}}-,suffix=-glibc,enable=${{ !startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=${{ github.event.inputs.tag }}-glibc,enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
