@@ -13,14 +13,10 @@ jobs:
     permissions:
       actions: write
       contents: write # Needed to write commits and tags
-      workflow: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT }}
-          fetch-depth: 0
 
       - name: Configure Git
         run: |
@@ -86,5 +82,7 @@ jobs:
           TAG="v${{ steps.version.outputs.version }}"
           echo "Triggering build-and-push workflow for ${TAG}..."
           gh workflow run build-and-push.yml --ref ${TAG} -f tag=${TAG}
+          gh workflow run build-and-push-glibc.yml --ref ${TAG} -f tag=${TAG}
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          # secrets.PAT 대신 기본 토큰 사용
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
