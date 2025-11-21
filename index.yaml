@@ -4,6 +4,30 @@ entries:
   - annotations:
       meta.helm.sh/kubeVersion: '>=1.20.0'
     apiVersion: v2
+    appVersion: 0.3.3
+    created: "2025-11-21T07:20:25.461161338Z"
+    description: Kubernetes operator for automated Pod cleanup based on annotation-driven
+      policies
+    digest: 6c4919830d4f6b985590310d61f16cb7941261658acbae81ed867ac9b317ba06
+    home: https://github.com/mrchypark/kube-depod
+    keywords:
+    - kubernetes
+    - operator
+    - pod-cleanup
+    - automation
+    maintainers:
+    - email: mrchypark@gmail.com
+      name: Park Chanyub
+    name: kube-depod
+    sources:
+    - https://github.com/mrchypark/kube-depod
+    type: application
+    urls:
+    - https://mrchypark.github.io/kube-depod/kube-depod-0.3.3.tgz
+    version: 0.3.3
+  - annotations:
+      meta.helm.sh/kubeVersion: '>=1.20.0'
+    apiVersion: v2
     appVersion: 0.3.1
     created: "2025-11-20T04:03:36.375196727Z"
     description: Kubernetes operator for automated Pod cleanup based on annotation-driven
@@ -73,4 +97,4 @@ entries:
     urls:
     - https://mrchypark.github.io/kube-depod/kube-depod-0.2.0.tgz
     version: 0.2.0
-generated: "2025-11-20T04:03:36.373701364Z"
+generated: "2025-11-21T07:20:25.459829584Z"
