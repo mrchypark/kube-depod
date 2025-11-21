@@ -253,31 +253,15 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                             condition_result
                         }
                         Err(crate::Error::CelCompilationError(e)) => {
-                            let err_msg = format!("CEL compilation failed: {e}");
                             warn!(
                                 "CEL compilation failed for policy {}: {}",
                                 policy.name_any(),
                                 e
                             );
                             ctx.metrics.increment_evaluation_errors();
-                            
-                            // Update policy status with InvalidCEL condition
-                            let policy_ns = get_policy_namespace(policy);
-                            let condition = PolicyCondition::invalid_cel(&err_msg);
-                            if let Err(status_err) = update_policy_status(
-                                &ctx.client,
-                                &policy.name_any(),
-                                &policy_ns,
-                                condition,
-                            )
-                            .await
-                            {
-                                warn!("Failed to update policy status for {}: {}", policy.name_any(), status_err);
-                            }
                             false
                         }
                         Err(crate::Error::CelEvaluationError(e)) => {
-                            let err_msg = format!("CEL evaluation failed: {e}");
                             warn!(
                                 "CEL evaluation failed for pod {}/{} (policy {}): {}",
                                 pod_ns,
@@ -286,24 +270,9 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                                 e
                             );
                             ctx.metrics.increment_evaluation_errors();
-                            
-                            // Update policy status with InvalidCEL condition
-                            let policy_ns = get_policy_namespace(policy);
-                            let condition = PolicyCondition::invalid_cel(&err_msg);
-                            if let Err(status_err) = update_policy_status(
-                                &ctx.client,
-                                &policy.name_any(),
-                                &policy_ns,
-                                condition,
-                            )
-                            .await
-                            {
-                                warn!("Failed to update policy status for {}: {}", policy.name_any(), status_err);
-                            }
                             false
                         }
                         Err(e) => {
-                            let err_msg = format!("CEL error: {e}");
                             warn!(
                                 "CEL error for pod {}/{} (policy {}): {}",
                                 pod_ns,
@@ -312,20 +281,6 @@ pub async fn reconcile_pod(pod: Arc<Pod>, ctx: Arc<Context>) -> Result<Action> {
                                 e
                             );
                             ctx.metrics.increment_evaluation_errors();
-                            
-                            // Update policy status with InvalidCEL condition
-                            let policy_ns = get_policy_namespace(policy);
-                            let condition = PolicyCondition::invalid_cel(&err_msg);
-                            if let Err(status_err) = update_policy_status(
-                                &ctx.client,
-                                &policy.name_any(),
-                                &policy_ns,
-                                condition,
-                            )
-                            .await
-                            {
-                                warn!("Failed to update policy status for {}: {}", policy.name_any(), status_err);
-                            }
                             false
                         }
                     }
@@ -590,12 +545,57 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
         );
         
         // Update policy status with InvalidSpec condition
-        let condition = PolicyCondition::invalid_spec(e.to_string());
-        if let Err(status_err) = update_policy_status(&ctx.client, &policy_name, &policy_ns, condition).await {
-            warn!("Failed to update policy status for {}: {}", policy_name, status_err);
+        let should_update = if let Some(status) = &policy.status {
+            !status.conditions.iter().any(|c| 
+                c.condition_type == "InvalidSpec" && 
+                c.status == "True" &&
+                c.message.as_deref() == Some(&e.to_string())
+            )
+        } else {
+            true
+        };
+
+        if should_update {
+            let condition = PolicyCondition::invalid_spec(e.to_string());
+            if let Err(status_err) = update_policy_status(&ctx.client, &policy_name, &policy_ns, condition).await {
+                warn!("Failed to update policy status for {}: {}", policy_name, status_err);
+            }
         }
         
         return Ok(Action::await_change());
+    }
+
+    // Validate CEL expression if present
+    if let Some(expr) = &policy.spec.when.expression {
+        if policy.spec.when.condition_type == crate::crd::ConditionType::CEL {
+            if let Err(e) = ctx.evaluator.validate(expr) {
+                let err_msg = format!("CEL compilation failed: {}", e);
+                warn!(
+                    "Skipping invalid policy {} (CEL error): {}. Cache will not include this policy.",
+                    policy_name, err_msg
+                );
+
+                // Update policy status with InvalidCEL condition
+                let should_update = if let Some(status) = &policy.status {
+                    !status.conditions.iter().any(|c| 
+                        c.condition_type == "InvalidCEL" && 
+                        c.status == "True" &&
+                        c.message.as_deref() == Some(&err_msg)
+                    )
+                } else {
+                    true
+                };
+
+                if should_update {
+                    let condition = PolicyCondition::invalid_cel(&err_msg);
+                    if let Err(status_err) = update_policy_status(&ctx.client, &policy_name, &policy_ns, condition).await {
+                        warn!("Failed to update policy status for {}: {}", policy_name, status_err);
+                    }
+                }
+
+                return Ok(Action::await_change());
+            }
+        }
     }
 
     info!(
@@ -625,9 +625,22 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
     );
     
     // Update policy status with Ready condition
-    let condition = PolicyCondition::ready();
-    if let Err(status_err) = update_policy_status(&ctx.client, &policy_name, &policy_ns, condition).await {
-        warn!("Failed to update policy status for {}: {}", policy_name, status_err);
+    // Only update if not already Ready to avoid infinite reconciliation loops
+    let should_update = if let Some(status) = &policy.status {
+        !status.conditions.iter().any(|c| 
+            c.condition_type == "Ready" && 
+            c.status == "True" &&
+            c.reason.as_deref() == Some("PolicyValidated")
+        )
+    } else {
+        true
+    };
+
+    if should_update {
+        let condition = PolicyCondition::ready();
+        if let Err(status_err) = update_policy_status(&ctx.client, &policy_name, &policy_ns, condition).await {
+            warn!("Failed to update policy status for {}: {}", policy_name, status_err);
+        }
     }
 
     // --- 2. Find and touch all matching pods ---

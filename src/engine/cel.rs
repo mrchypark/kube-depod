@@ -96,6 +96,21 @@ impl CelEvaluator {
         }
     }
 
+    /// Validate a CEL expression by compiling it
+    pub fn validate(&self, expr: &str) -> Result<()> {
+        if self.expression_cache.contains_key(expr) {
+            return Ok(());
+        }
+        match Program::compile(expr) {
+            Ok(prog) => {
+                let prog = Arc::new(prog);
+                self.expression_cache.insert(expr.to_string(), prog);
+                Ok(())
+            }
+            Err(e) => Err(crate::Error::CelCompilationError(e.to_string())),
+        }
+    }
+
     /// Clear the expression cache
     pub fn clear_cache(&self) {
         self.expression_cache.clear();

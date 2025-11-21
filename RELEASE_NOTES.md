@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.3.4
+
+**Changes**
+
+- **Fixed Infinite Reconciliation Loop**:
+    - Implemented "check-before-update" logic in `reconcile_policy` to prevent unconditional status updates that caused self-triggering loops.
+    - Added early CEL validation in `reconcile_policy` to catch compilation errors before they enter the reconciliation cycle.
+    - Removed policy status updates from `reconcile_pod` to prevent "ping-pong" loops between the Pod and Policy controllers during error conditions.
+
 ## v0.3.3
 
 **Changes**
