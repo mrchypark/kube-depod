@@ -85,4 +85,4 @@ jobs:
           echo "Triggering build-and-push workflow for ${TAG}..."
           gh workflow run build-and-push.yml --ref ${TAG} -f tag=${TAG}
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
