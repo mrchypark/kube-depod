@@ -1,15 +1,20 @@
 # Release Notes
 
+## v0.3.7
+
+**Changes**
+
+- Patch version bump to v0.3.7.
+- No functional changes.
+
 ## v0.3.6
 
 **Changes**
 
-- **Automated Version Management**:
-    - Updated workflow to automatically update `manifests/deployment.yaml` when version changes
-    - Workflow now updates image tags and version labels in deployment manifests
-- **Documentation**:
-    - Created `AGENTS.md` with comprehensive AI agent usage guidelines
-    - Clarified version management process (manual: Cargo.toml + RELEASE_NOTES.md, automatic: Chart.yaml + deployment.yaml)
+- Automated version management updates.
+- Added workflow_dispatch triggers.
+- Fixed clippy warnings.
+- Updated documentation.
 
 ## v0.3.5
 
