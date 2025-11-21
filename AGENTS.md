@@ -36,7 +36,8 @@ version = "0.3.5"  # Bump version here
 **What the workflow does** (`.github/workflows/tag-on-version-change.yml`):
 - Detects the version change in `Cargo.toml`
 - Updates `Chart.yaml` (version and appVersion) automatically
-- Commits and pushes the Chart.yaml change
+- Updates `manifests/deployment.yaml` (image tag and version labels) automatically
+- Commits and pushes the Chart.yaml and deployment.yaml changes
 - Creates a git tag (e.g., `v0.3.5`)
 
 ## Semantic Versioning
@@ -203,6 +204,8 @@ kube-depod/
 │   └── kube-depod/
 │       ├── Chart.yaml    # Auto-updated by workflow
 │       └── templates/
+├── manifests/
+│   └── deployment.yaml   # Auto-updated by workflow
 ├── .github/
 │   └── workflows/
 │       ├── tag-on-version-change.yml

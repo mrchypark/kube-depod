@@ -54,12 +54,18 @@ jobs:
           # Update image.tag in values.yaml
           VALUES_PATH="helm/kube-depod/values.yaml"
           sed -i "s/^\(  tag: \)\"v.*\"/\1\"v${NEW_VERSION}\"/" ${VALUES_PATH}
+          
+          # Update manifests/deployment.yaml
+          MANIFEST_PATH="manifests/deployment.yaml"
+          sed -i "s/\(version: v\)[0-9.]*$/\1${NEW_VERSION}/" ${MANIFEST_PATH}
+          sed -i "s|\(image: ghcr.io/mrchypark/kube-depod:v\)[0-9.]*$|\1${NEW_VERSION}|" ${MANIFEST_PATH}
+          
           echo "continue=true" >> $GITHUB_OUTPUT
 
       - name: Commit and push Helm chart changes
         if: steps.update_chart.outputs.continue == 'true'
         run: |
-          git add helm/kube-depod/Chart.yaml helm/kube-depod/values.yaml
+          git add helm/kube-depod/Chart.yaml helm/kube-depod/values.yaml manifests/deployment.yaml
           git commit -m "chore(release): bump helm chart to v${{ steps.version.outputs.version }} [skip ci]"
           git push
 
