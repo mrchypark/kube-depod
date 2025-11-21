@@ -69,19 +69,35 @@ cargo test --test controller_integration_test -- --ignored
 
 ### Before Committing
 
+Run all checks from the test workflow to ensure CI will pass:
+
 ```bash
-# Check compilation
+# 1. Run clippy (linting)
+cargo clippy --all-targets --all-features -- -D warnings
+
+# 2. Run unit tests
+cargo test --all-features
+
+# 3. Run integration tests (requires K3s/kind cluster)
+cargo test --test controller_integration_test -- --ignored
+
+# 4. Check compilation
 cargo check
 
-# Run tests
-cargo test
-
-# Format code
+# 5. Format code
 cargo fmt
-
-# Run clippy
-cargo clippy -- -D warnings
 ```
+
+**Required checks** (must pass before committing):
+- ✅ `cargo clippy` - No warnings
+- ✅ `cargo test` - All unit tests pass
+- ✅ `cargo check` - Compilation successful
+
+**Optional checks** (recommended):
+- `cargo test --test controller_integration_test -- --ignored` - Integration tests (requires cluster)
+- `cargo fmt` - Code formatting
+
+> **Note**: The CI workflow (`.github/workflows/test.yml`) runs all these checks automatically on push and PR.
 
 ## Commit Message Format
 
