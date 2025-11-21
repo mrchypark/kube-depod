@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (e.g., v0.3.6)'
+        description: "Tag to build (e.g., v0.3.6)"
         required: true
         type: string
   workflow_run:
@@ -19,8 +19,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'push' || github.event.workflow_run.conclusion == 'success')
+    if: github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     permissions:
       packages: write
       contents: read
