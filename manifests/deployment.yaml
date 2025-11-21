@@ -5,7 +5,7 @@ metadata:
   namespace: kube-system
   labels:
     app: kube-depod
-    version: v0.3.5
+    version: v0.3.6
 spec:
   replicas: 1
   selector:
@@ -15,12 +15,12 @@ spec:
     metadata:
       labels:
         app: kube-depod
-        version: v0.3.5
+        version: v0.3.6
     spec:
       serviceAccountName: kube-depod
       containers:
       - name: operator
-        image: ghcr.io/mrchypark/kube-depod:v0.3.5
+        image: ghcr.io/mrchypark/kube-depod:v0.3.6
         imagePullPolicy: IfNotPresent
         env:
         - name: RUST_LOG

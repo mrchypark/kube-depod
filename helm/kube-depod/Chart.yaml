@@ -2,8 +2,8 @@ apiVersion: v2
 name: kube-depod
 description: Kubernetes operator for automated Pod cleanup based on annotation-driven policies
 type: application
-version: 0.3.5
-appVersion: "0.3.5"
+version: 0.3.6
+appVersion: "0.3.6"
 keywords:
   - kubernetes
   - operator
