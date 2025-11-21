@@ -78,3 +78,12 @@ jobs:
           git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
           git push origin "${TAG}"
           echo "Tag ${TAG} pushed successfully."
+
+      - name: Trigger build workflow
+        if: steps.update_chart.outputs.continue == 'true'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          echo "Triggering build-and-push workflow for ${TAG}..."
+          gh workflow run build-and-push.yml --ref ${TAG} -f tag=${TAG}
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}

@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g., v0.3.6)'
+        required: true
+        type: string
   workflow_run:
     workflows: ["Run Tests"]
     branches: [main]
