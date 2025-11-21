@@ -4,31 +4,40 @@ This document provides guidelines for AI agents (like Claude, GPT, etc.) working
 
 ## Version Management
 
-### Cargo.toml Version Updates
+### When Bumping Version
 
-When updating the project version:
+When updating the project version, you must update **two files manually**:
 
-- **DO**: Update the `version` field in `Cargo.toml` according to semantic versioning
-- **DON'T**: Manually update `helm/kube-depod/Chart.yaml` or `RELEASE_NOTES.md`
+1. **`Cargo.toml`** - Update the `version` field
+2. **`RELEASE_NOTES.md`** - Add a new version section with changes
 
-**Reason**: The GitHub Actions workflow automatically handles:
-1. Updating `Chart.yaml` (version and appVersion)
-2. Updating `RELEASE_NOTES.md` with the new version section
-3. Creating and pushing a git tag
+**DO NOT** manually update `helm/kube-depod/Chart.yaml` - the workflow handles this.
 
-**Example**:
+**Example workflow**:
+
 ```toml
-# Cargo.toml
+# 1. Update Cargo.toml
 [package]
 name = "kube-depod"
-version = "0.3.5"  # Update this only
+version = "0.3.5"  # Bump version here
 ```
 
-The workflow (`.github/workflows/tag-on-version-change.yml`) will:
-- Detect the version change in `Cargo.toml`
-- Update `Chart.yaml` and `RELEASE_NOTES.md`
-- Commit and push these changes
-- Create a git tag (e.g., `v0.3.5`)
+```markdown
+# 2. Update RELEASE_NOTES.md
+## v0.3.5
+
+**Changes**
+
+- **Added Regression Test for Infinite Loop Fix**:
+    - Created `tests/infinite_loop_regression_test.rs`
+    - Test ensures status updates are only sent when necessary
+```
+
+**What the workflow does** (`.github/workflows/tag-on-version-change.yml`):
+- Detects the version change in `Cargo.toml`
+- Updates `Chart.yaml` (version and appVersion) automatically
+- Commits and pushes the Chart.yaml change
+- Creates a git tag (e.g., `v0.3.5`)
 
 ## Semantic Versioning
 
@@ -155,9 +164,10 @@ Located at `.github/workflows/build-and-push.yml`:
 2. Implement the feature
 3. Add tests
 4. Update `Cargo.toml` version (MINOR bump)
-5. Commit with `feat:` prefix
-6. Push and create PR
-7. After merge, workflow handles the rest
+5. Update `RELEASE_NOTES.md` with new version section
+6. Commit with `feat:` prefix
+7. Push and create PR
+8. After merge, workflow creates tag and updates Chart.yaml
 
 ### Fixing a Bug
 
@@ -165,9 +175,10 @@ Located at `.github/workflows/build-and-push.yml`:
 2. Fix the bug
 3. Add regression test
 4. Update `Cargo.toml` version (PATCH bump)
-5. Commit with `fix:` prefix
-6. Push and create PR
-7. After merge, workflow handles the rest
+5. Update `RELEASE_NOTES.md` with new version section
+6. Commit with `fix:` prefix
+7. Push and create PR
+8. After merge, workflow creates tag and updates Chart.yaml
 
 ### Adding Documentation
 
@@ -197,13 +208,14 @@ kube-depod/
 │       ├── tag-on-version-change.yml
 │       └── build-and-push.yml
 ├── Cargo.toml            # Update version here
-├── RELEASE_NOTES.md      # Auto-updated by workflow
+├── RELEASE_NOTES.md      # Update manually when bumping version
 └── AGENTS.md             # This file
 ```
 
 ## Important Notes
 
-- **Never manually edit** `Chart.yaml` or `RELEASE_NOTES.md` when bumping versions
+- **When bumping version**: Update both `Cargo.toml` AND `RELEASE_NOTES.md` manually
+- **Never manually edit** `Chart.yaml` - the workflow handles this automatically
 - **Always run** `cargo check` and `cargo test` before committing
 - **Use semantic versioning** strictly
 - **Write meaningful commit messages** following Conventional Commits
