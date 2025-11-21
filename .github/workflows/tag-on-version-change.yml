@@ -75,7 +75,6 @@ jobs:
           TAG="v${{ steps.version.outputs.version }}"
           echo "Creating and pushing tag ${TAG}..."
           git tag "${TAG}"
-          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
           git push origin "${TAG}"
           echo "Tag ${TAG} pushed successfully."
 
