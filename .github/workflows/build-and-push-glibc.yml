@@ -1,21 +1,26 @@
 name: Build and Push (glibc)
 
 on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g., v0.3.6)'
+        required: true
+        type: string
   workflow_run:
     workflows: ["Run Tests"]
     branches: [main]
     types:
       - completed
-  push:
-    tags:
-      - "v*"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'push' || 
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      github.event_name == 'push' || github.event.workflow_run.conclusion == 'success')
     permissions:
       packages: write
       contents: read
