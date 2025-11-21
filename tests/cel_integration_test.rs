@@ -113,7 +113,7 @@ fn test_cel_crashloop_detection() {
     )"#;
 
     let result = evaluator.evaluate(expr, &pod, "test-policy");
-    assert!(result.is_ok(), "CEL evaluation failed: {:?}", result);
+    assert!(result.is_ok(), "CEL evaluation failed: {result:?}");
     assert!(result.unwrap(), "Should detect CrashLoopBackOff pod");
 }
 
@@ -262,7 +262,7 @@ fn test_cel_complex_ready_condition_check() {
     )"#;
 
     let result = evaluator.evaluate(expr, &pod, "test-policy");
-    assert!(result.is_ok(), "CEL evaluation failed: {:?}", result);
+    assert!(result.is_ok(), "CEL evaluation failed: {result:?}");
     assert!(result.unwrap(), "Should detect completed pod with Failed status");
 }
 

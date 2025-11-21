@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.3.6
+
+**Changes**
+
+- **Automated Version Management**:
+    - Updated workflow to automatically update `manifests/deployment.yaml` when version changes
+    - Workflow now updates image tags and version labels in deployment manifests
+- **Documentation**:
+    - Created `AGENTS.md` with comprehensive AI agent usage guidelines
+    - Clarified version management process (manual: Cargo.toml + RELEASE_NOTES.md, automatic: Chart.yaml + deployment.yaml)
+
+## v0.3.5
+
+**Changes**
+
+- **Added Regression Test for Infinite Loop Fix**:
+    - Created `tests/infinite_loop_regression_test.rs` using mock client to verify that the infinite loop fix from v0.3.4 works correctly.
+    - Test ensures that status updates are only sent when necessary, preventing redundant API calls.
+    - Added test dependencies: `tower-test`, `tower`, `http`, `http-body-util`.
+
 ## v0.3.4
 
 **Changes**

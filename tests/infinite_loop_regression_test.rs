@@ -99,7 +99,7 @@ async fn test_infinite_loop_regression_mock() -> Result<()> {
     let (request, send) = handle.next_request().await.expect("Expected PATCH request");
     
     assert_eq!(request.method(), http::Method::PATCH);
-    assert_eq!(request.uri().path(), format!("/apis/kube-depod.io/v1alpha1/namespaces/{}/depodpolicies/{}/status", policy_ns, policy_name));
+    assert_eq!(request.uri().path(), format!("/apis/kube-depod.io/v1alpha1/namespaces/{policy_ns}/depodpolicies/{policy_name}/status"));
     
     // Verify body contains InvalidCEL
     let body_bytes = request.into_body().collect().await?.to_bytes();
@@ -113,7 +113,7 @@ async fn test_infinite_loop_regression_mock() -> Result<()> {
         .body(Body::from(serde_json::to_vec(&policy)?))?;
     send.send_response(response);
 
-    let result = reconcile_future.await??;
+    let _result = reconcile_future.await??;
     // Expect await_change because validation failed
     // Actually reconcile_policy returns Action::await_change() on error
     // Wait, verify return value
@@ -126,7 +126,7 @@ async fn test_infinite_loop_regression_mock() -> Result<()> {
     let expr = "this is invalid syntax !!!";
     let err_msg = match cel::Program::compile(expr) {
         Ok(_) => panic!("Expected compilation error"),
-        Err(e) => format!("CEL compilation failed: CEL compilation error: {}", e),
+        Err(e) => format!("CEL compilation failed: CEL compilation error: {e}"),
     };
     
     let condition = PolicyCondition {
@@ -160,7 +160,7 @@ async fn test_infinite_loop_regression_mock() -> Result<()> {
         panic!("Did not expect any request on second run!");
     }
 
-    let result_2 = reconcile_future_2.await??;
+    let _result_2 = reconcile_future_2.await??;
     
     Ok(())
 }

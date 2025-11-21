@@ -569,7 +569,7 @@ pub async fn reconcile_policy(policy: Arc<DepodPolicy>, ctx: Arc<Context>) -> Re
     if let Some(expr) = &policy.spec.when.expression {
         if policy.spec.when.condition_type == crate::crd::ConditionType::CEL {
             if let Err(e) = ctx.evaluator.validate(expr) {
-                let err_msg = format!("CEL compilation failed: {}", e);
+                let err_msg = format!("CEL compilation failed: {e}");
                 warn!(
                     "Skipping invalid policy {} (CEL error): {}. Cache will not include this policy.",
                     policy_name, err_msg
